@@ -1,5 +1,6 @@
 import 'package:app_web_ui/services/config.dart';
-import 'package:app_web_ui/services/webview.dart';
+import 'package:app_web_ui/services/pages/webview.dart';
+
 import 'package:app_web_ui/stores/search_store.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
@@ -89,9 +90,6 @@ class _MyHomePageState extends State<MyHomePage> {
                                   (context) =>
                                       MyWidget(url: "$serverurl${result.id}"),
                             ),
-                          );
-                          print(
-                            "swagjnadsadjkosgnopadnoij $serverurl${result.id}",
                           );
                         },
                       );

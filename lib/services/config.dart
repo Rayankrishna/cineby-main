@@ -9,6 +9,9 @@ const String serverurl = 'https://www.vidking.net/embed/movie/';
 const String searchUrl =
     'https://db.videasy.net/3/search/multi?language=en&page=1&query=';
 
+const String homeUrl =
+    "https://db.videasy.net/3/trending/all/day?region=US&language=en";
+
 const String authServiceUrl = serverurl;
 
 HttpClient? http;
