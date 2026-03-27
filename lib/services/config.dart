@@ -4,13 +4,17 @@
 
 import 'package:dio/dio.dart';
 
-const String serverurl = 'https://www.vidking.net/embed/movie/';
+const String serverurl = 'https://vidlink.pro/movie/';
 
 const String searchUrl =
     'https://db.videasy.net/3/search/multi?language=en&page=1&query=';
 
 const String homeUrl =
     "https://db.videasy.net/3/trending/all/day?region=US&language=en";
+
+const String movieDetailUrl = 'https://db.videasy.net/3/movie';
+const String movieDetailParams =
+    '?append_to_response=credits,external_ids,videos&language=en';
 
 const String authServiceUrl = serverurl;
 

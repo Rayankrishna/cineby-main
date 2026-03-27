@@ -63,6 +63,24 @@ mixin _$SearchStore on _SearchStore, Store {
     });
   }
 
+  late final _$trendingResultsAtom = Atom(
+    name: '_SearchStore.trendingResults',
+    context: context,
+  );
+
+  @override
+  ObservableList<SearchResult> get trendingResults {
+    _$trendingResultsAtom.reportRead();
+    return super.trendingResults;
+  }
+
+  @override
+  set trendingResults(ObservableList<SearchResult> value) {
+    _$trendingResultsAtom.reportWrite(value, super.trendingResults, () {
+      super.trendingResults = value;
+    });
+  }
+
   late final _$errorMessageAtom = Atom(
     name: '_SearchStore.errorMessage',
     context: context,
@@ -103,12 +121,25 @@ mixin _$SearchStore on _SearchStore, Store {
     );
   }
 
+  late final _$fetchTrendingResultsAsyncAction = AsyncAction(
+    '_SearchStore.fetchTrendingResults',
+    context: context,
+  );
+
+  @override
+  Future<void> fetchTrendingResults() {
+    return _$fetchTrendingResultsAsyncAction.run(
+      () => super.fetchTrendingResults(),
+    );
+  }
+
   @override
   String toString() {
     return '''
 searchQuery: ${searchQuery},
 isLoading: ${isLoading},
 searchResults: ${searchResults},
+trendingResults: ${trendingResults},
 errorMessage: ${errorMessage}
     ''';
   }
