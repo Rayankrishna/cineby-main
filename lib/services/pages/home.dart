@@ -1,3 +1,4 @@
+import 'package:app_web_ui/services/pages/library_page.dart';
 import 'package:app_web_ui/services/pages/movie_detail_page.dart';
 import 'package:app_web_ui/services/pages/tv_detail_page.dart';
 
@@ -221,12 +222,20 @@ class _MyHomePageState extends State<MyHomePage> {
               borderRadius: BorderRadius.circular(12),
             ),
             child: IconButton(
+              tooltip: 'Library',
               icon: const Icon(
-                Icons.notifications_none_rounded,
+                Icons.bookmark_outline_rounded,
                 color: Colors.white70,
                 size: 22,
               ),
-              onPressed: () {},
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const LibraryPage(),
+                  ),
+                );
+              },
             ),
           ),
         ],

@@ -1,7 +1,9 @@
 import 'package:app_web_ui/models/tv_detail_model.dart';
 import 'package:app_web_ui/services/config.dart';
 import 'package:app_web_ui/services/pages/webview.dart';
+import 'package:app_web_ui/stores/history_store.dart';
 import 'package:app_web_ui/stores/tv_detail_store.dart';
+import 'package:app_web_ui/stores/watchlist_store.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 
@@ -21,6 +23,7 @@ class _TvDetailPageState extends State<TvDetailPage> {
   void initState() {
     super.initState();
     _store.fetchTvDetail(widget.tvId);
+    watchlistStore.checkContains(widget.tvId, 'tv');
   }
 
   String _formatYear(String? date) {
@@ -29,6 +32,17 @@ class _TvDetailPageState extends State<TvDetailPage> {
   }
 
   void _playEpisode(int season, int episode) {
+    final tv = _store.tvDetail;
+    historyStore.record(
+      tmdbId: widget.tvId,
+      mediaType: 'tv',
+      seasonNumber: season,
+      episodeNumber: episode,
+      progressSeconds: 0,
+      title: tv?.name,
+      posterPath: tv?.posterPath,
+      backdropPath: tv?.backdropPath,
+    );
     final url =
         '$tvServerurl${widget.tvId}/$season/$episode'
         '?episodeSelector=true&nextEpisode=true&autoplayNextEpisode=true';
@@ -137,6 +151,28 @@ class _TvDetailPageState extends State<TvDetailPage> {
             icon: const Icon(Icons.arrow_back, color: Colors.white),
             onPressed: () => Navigator.pop(context),
           ),
+        ),
+        Positioned(
+          top: MediaQuery.of(context).padding.top + 8,
+          right: 8,
+          child: Observer(builder: (_) {
+            final inList =
+                watchlistStore.cachedContains(widget.tvId, 'tv') ?? false;
+            return IconButton(
+              icon: Icon(
+                inList
+                    ? Icons.bookmark_rounded
+                    : Icons.bookmark_outline_rounded,
+                color: inList ? const Color(0xFFE50914) : Colors.white,
+              ),
+              onPressed: () => watchlistStore.toggle(
+                tmdbId: widget.tvId,
+                mediaType: 'tv',
+                title: tv.name,
+                posterPath: tv.posterPath,
+              ),
+            );
+          }),
         ),
       ],
     );

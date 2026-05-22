@@ -16,6 +16,11 @@ const String movieDetailUrl = 'https://db.videasy.net/3/movie';
 const String movieDetailParams =
     '?append_to_response=credits,external_ids,videos&language=en';
 
+// Reelix backend API. Change to your deployed URL when ready.
+// Android emulator → use http://10.0.2.2:4000
+// iOS simulator   → use http://localhost:4000
+const String apiBaseUrl = 'http://localhost:4000/api/v1';
+
 const String tvServerurl = 'https://player.videasy.net/tv/';
 const String tvDetailUrl = 'https://db.videasy.net/3/tv';
 const String tvDetailParams =

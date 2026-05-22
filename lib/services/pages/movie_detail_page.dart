@@ -1,6 +1,8 @@
 import 'package:app_web_ui/services/config.dart';
 import 'package:app_web_ui/services/pages/webview.dart';
+import 'package:app_web_ui/stores/history_store.dart';
 import 'package:app_web_ui/stores/movie_detail_store.dart';
+import 'package:app_web_ui/stores/watchlist_store.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 
@@ -20,6 +22,7 @@ class _MovieDetailPageState extends State<MovieDetailPage> {
   void initState() {
     super.initState();
     _store.fetchMovieDetail(widget.movieId);
+    watchlistStore.checkContains(widget.movieId, 'movie');
   }
 
   String _formatRuntime(int? minutes) {
@@ -127,6 +130,35 @@ class _MovieDetailPageState extends State<MovieDetailPage> {
                         onPressed: () => Navigator.pop(context),
                       ),
                     ),
+
+                    // Watchlist toggle
+                    Positioned(
+                      top: MediaQuery.of(context).padding.top + 8,
+                      right: 8,
+                      child: Observer(builder: (_) {
+                        final inList = watchlistStore.cachedContains(
+                              widget.movieId,
+                              'movie',
+                            ) ??
+                            false;
+                        return IconButton(
+                          icon: Icon(
+                            inList
+                                ? Icons.bookmark_rounded
+                                : Icons.bookmark_outline_rounded,
+                            color: inList
+                                ? const Color(0xFFE50914)
+                                : Colors.white,
+                          ),
+                          onPressed: () => watchlistStore.toggle(
+                            tmdbId: widget.movieId,
+                            mediaType: 'movie',
+                            title: movie.title,
+                            posterPath: movie.posterPath,
+                          ),
+                        );
+                      }),
+                    ),
                   ],
                 ),
               ),
@@ -203,6 +235,17 @@ class _MovieDetailPageState extends State<MovieDetailPage> {
                                 fontSize: 16, fontWeight: FontWeight.bold),
                           ),
                           onPressed: () {
+                            historyStore.record(
+                              tmdbId: movie.id,
+                              mediaType: 'movie',
+                              progressSeconds: 0,
+                              durationSeconds: movie.runtime != null
+                                  ? movie.runtime! * 60
+                                  : null,
+                              title: movie.title,
+                              posterPath: movie.posterPath,
+                              backdropPath: movie.backdropPath,
+                            );
                             Navigator.push(
                               context,
                               MaterialPageRoute(

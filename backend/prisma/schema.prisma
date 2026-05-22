@@ -1,0 +1,73 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(uuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  history       WatchHistoryItem[]
+  watchlist     WatchlistItem[]
+  refreshTokens RefreshToken[]
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+enum MediaType {
+  movie
+  tv
+}
+
+model WatchHistoryItem {
+  id               String    @id @default(uuid())
+  userId           String
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tmdbId           Int
+  mediaType        MediaType
+  seasonNumber     Int?
+  episodeNumber    Int?
+  progressSeconds  Int       @default(0)
+  durationSeconds  Int?
+  completed        Boolean   @default(false)
+  title            String?
+  posterPath       String?
+  backdropPath     String?
+  watchedAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@unique([userId, tmdbId, mediaType, seasonNumber, episodeNumber], name: "userId_tmdbId_mediaType_seasonNumber_episodeNumber")
+  @@index([userId, updatedAt])
+}
+
+model WatchlistItem {
+  id         String    @id @default(uuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tmdbId     Int
+  mediaType  MediaType
+  title      String?
+  posterPath String?
+  addedAt    DateTime  @default(now())
+
+  @@unique([userId, tmdbId, mediaType], name: "userId_tmdbId_mediaType")
+  @@index([userId, addedAt])
+}
