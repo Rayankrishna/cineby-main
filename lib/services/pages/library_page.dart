@@ -62,7 +62,7 @@ class _LibraryPageState extends State<LibraryPage>
             onPressed: () async {
               await authStore.logout();
               if (mounted) {
-                Navigator.of(context).pushReplacementNamed('/login');
+                Navigator.of(context).popUntil((r) => r.isFirst);
               }
             },
           ),

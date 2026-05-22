@@ -34,9 +34,8 @@ class _LoginPageState extends State<LoginPage> {
             email: _email.text.trim(),
             password: _password.text,
           );
-    if (ok && mounted) {
-      Navigator.of(context).pushReplacementNamed('/');
-    }
+    // Success: the root Observer in main.dart will rebuild to MyHomePage.
+    if (!ok) return;
   }
 
   @override

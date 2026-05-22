@@ -40,10 +40,6 @@ class MyApp extends StatelessWidget {
           displayColor: Colors.white,
         ),
       ),
-      routes: {
-        '/login': (_) => const LoginPage(),
-        '/': (_) => const MyHomePage(title: 'Reelix'),
-      },
       home: Observer(
         builder: (_) => authStore.isAuthenticated
             ? const MyHomePage(title: 'Reelix')
