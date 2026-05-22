@@ -30,14 +30,14 @@ class MyApp extends StatelessWidget {
 
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Cineby',
+      title: 'Reelix',
       theme: base.copyWith(
         textTheme: base.textTheme.apply(
           bodyColor: Colors.white,
           displayColor: Colors.white,
         ),
       ),
-      home: const MyHomePage(title: 'Cineby'),
+      home: const MyHomePage(title: 'Reelix'),
     );
   }
 }

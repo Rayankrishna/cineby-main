@@ -205,7 +205,7 @@ class _MyHomePageState extends State<MyHomePage> {
               ),
               const SizedBox(width: 10),
               const Text(
-                "Cineby",
+                "Reelix",
                 style: TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.w800,
