@@ -1,4 +1,5 @@
 import 'package:app_web_ui/services/pages/movie_detail_page.dart';
+import 'package:app_web_ui/services/pages/tv_detail_page.dart';
 
 import 'package:app_web_ui/stores/search_store.dart';
 import 'package:flutter/material.dart';
@@ -143,6 +144,10 @@ class _MyHomePageState extends State<MyHomePage> {
                           itemCount: results.length,
                           itemBuilder: (context, index) {
                             final result = results[index];
+                            final isTv = result.mediaType == 'tv' ||
+                                (result.mediaType == null &&
+                                    result.title == null &&
+                                    result.name != null);
                             return _PosterCard(
                               posterPath: result.posterPath,
                               title: result.title ?? result.name ?? 'Unknown',
@@ -150,10 +155,11 @@ class _MyHomePageState extends State<MyHomePage> {
                                 Navigator.push(
                                   context,
                                   MaterialPageRoute(
-                                    builder:
-                                        (context) => MovieDetailPage(
-                                          movieId: result.id,
-                                        ),
+                                    builder: (context) => isTv
+                                        ? TvDetailPage(tvId: result.id)
+                                        : MovieDetailPage(
+                                            movieId: result.id,
+                                          ),
                                   ),
                                 );
                               },

@@ -16,6 +16,13 @@ const String movieDetailUrl = 'https://db.videasy.net/3/movie';
 const String movieDetailParams =
     '?append_to_response=credits,external_ids,videos&language=en';
 
+const String tvServerurl = 'https://player.videasy.net/tv/';
+const String tvDetailUrl = 'https://db.videasy.net/3/tv';
+const String tvDetailParams =
+    '?append_to_response=credits,external_ids,videos&language=en';
+const String tvSeasonUrl = 'https://db.videasy.net/3/tv';
+const String tvSeasonParams = '?language=en';
+
 const String authServiceUrl = serverurl;
 
 HttpClient? http;

@@ -1,0 +1,495 @@
+import 'package:app_web_ui/models/tv_detail_model.dart';
+import 'package:app_web_ui/services/config.dart';
+import 'package:app_web_ui/services/pages/webview.dart';
+import 'package:app_web_ui/stores/tv_detail_store.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_mobx/flutter_mobx.dart';
+
+class TvDetailPage extends StatefulWidget {
+  final int tvId;
+
+  const TvDetailPage({super.key, required this.tvId});
+
+  @override
+  State<TvDetailPage> createState() => _TvDetailPageState();
+}
+
+class _TvDetailPageState extends State<TvDetailPage> {
+  final TvDetailStore _store = TvDetailStore();
+
+  @override
+  void initState() {
+    super.initState();
+    _store.fetchTvDetail(widget.tvId);
+  }
+
+  String _formatYear(String? date) {
+    if (date == null || date.isEmpty) return '';
+    return date.split('-').first;
+  }
+
+  void _playEpisode(int season, int episode) {
+    final url =
+        '$tvServerurl${widget.tvId}/$season/$episode'
+        '?episodeSelector=true&nextEpisode=true&autoplayNextEpisode=true';
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => MyWidget(url: url)),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF141414),
+      body: Observer(
+        builder: (_) {
+          if (_store.isLoading && _store.tvDetail == null) {
+            return const Center(
+              child: CircularProgressIndicator(color: Color(0xFFE50914)),
+            );
+          }
+
+          if (_store.errorMessage != null && _store.tvDetail == null) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.error_outline,
+                      color: Color(0xFFE50914),
+                      size: 48,
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      _store.errorMessage!,
+                      style: const TextStyle(color: Colors.white70),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 16),
+                    ElevatedButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Go Back'),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
+
+          final tv = _store.tvDetail;
+          if (tv == null) {
+            return const Center(
+              child: Text(
+                'No details available',
+                style: TextStyle(color: Colors.white70),
+              ),
+            );
+          }
+
+          return CustomScrollView(
+            slivers: [
+              SliverToBoxAdapter(child: _buildHeader(tv)),
+              SliverToBoxAdapter(child: _buildBody(tv)),
+              if (tv.seasons.isNotEmpty)
+                SliverToBoxAdapter(child: _buildSeasonPicker(tv)),
+              _buildEpisodeList(),
+              const SliverToBoxAdapter(child: SizedBox(height: 40)),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildHeader(TvDetail tv) {
+    return Stack(
+      children: [
+        if (tv.backdropPath != null)
+          Image.network(
+            'https://image.tmdb.org/t/p/w780${tv.backdropPath}',
+            height: 280,
+            width: double.infinity,
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) =>
+                Container(height: 280, color: Colors.grey[900]),
+          )
+        else
+          Container(height: 280, color: Colors.grey[900]),
+        Positioned.fill(
+          child: Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Colors.transparent, Color(0xFF141414)],
+                stops: [0.4, 1.0],
+              ),
+            ),
+          ),
+        ),
+        Positioned(
+          top: MediaQuery.of(context).padding.top + 8,
+          left: 8,
+          child: IconButton(
+            icon: const Icon(Icons.arrow_back, color: Colors.white),
+            onPressed: () => Navigator.pop(context),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBody(TvDetail tv) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            tv.name ?? 'Unknown',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 26,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              if (_formatYear(tv.firstAirDate).isNotEmpty) ...[
+                Text(
+                  _formatYear(tv.firstAirDate),
+                  style: const TextStyle(color: Colors.white70, fontSize: 14),
+                ),
+                const SizedBox(width: 12),
+              ],
+              if (tv.numberOfSeasons != null && tv.numberOfSeasons! > 0) ...[
+                Text(
+                  '${tv.numberOfSeasons} Season${tv.numberOfSeasons == 1 ? '' : 's'}',
+                  style: const TextStyle(color: Colors.white70, fontSize: 14),
+                ),
+                const SizedBox(width: 12),
+              ],
+              if (tv.voteAverage != null) ...[
+                const Icon(Icons.star, color: Colors.amber, size: 16),
+                const SizedBox(width: 4),
+                Text(
+                  tv.voteAverage!.toStringAsFixed(1),
+                  style: const TextStyle(color: Colors.white, fontSize: 14),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.white,
+                foregroundColor: Colors.black,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(6),
+                ),
+              ),
+              icon: const Icon(Icons.play_arrow, size: 28),
+              label: const Text(
+                'Play S1 · E1',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              onPressed: () {
+                final firstSeason = tv.seasons.isNotEmpty
+                    ? tv.seasons.first.seasonNumber
+                    : 1;
+                _playEpisode(firstSeason, 1);
+              },
+            ),
+          ),
+          const SizedBox(height: 16),
+          if (tv.tagline != null && tv.tagline!.isNotEmpty) ...[
+            Text(
+              tv.tagline!,
+              style: const TextStyle(
+                color: Colors.white60,
+                fontSize: 14,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
+          if (tv.overview != null && tv.overview!.isNotEmpty) ...[
+            Text(
+              tv.overview!,
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 14,
+                height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+          if (tv.genres.isNotEmpty) ...[
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: tv.genres
+                  .map(
+                    (g) => Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white12,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        g.name,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  )
+                  .toList(),
+            ),
+            const SizedBox(height: 16),
+          ],
+          if (tv.creatorName != null) ...[
+            Text.rich(
+              TextSpan(
+                children: [
+                  const TextSpan(
+                    text: 'Created by: ',
+                    style: TextStyle(color: Colors.white54, fontSize: 13),
+                  ),
+                  TextSpan(
+                    text: tv.creatorName,
+                    style: const TextStyle(color: Colors.white, fontSize: 13),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSeasonPicker(TvDetail tv) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+      child: Row(
+        children: [
+          const Text(
+            'Episodes',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const Spacer(),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1E1E26),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.08),
+                width: 1,
+              ),
+            ),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<int>(
+                value: _store.selectedSeasonNumber,
+                dropdownColor: const Color(0xFF1E1E26),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+                icon: const Icon(
+                  Icons.keyboard_arrow_down_rounded,
+                  color: Colors.white70,
+                ),
+                items: tv.seasons
+                    .map(
+                      (s) => DropdownMenuItem<int>(
+                        value: s.seasonNumber,
+                        child: Text(
+                          s.name ?? 'Season ${s.seasonNumber}',
+                        ),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (value) {
+                  if (value != null) {
+                    _store.fetchSeason(widget.tvId, value);
+                  }
+                },
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEpisodeList() {
+    if (_store.isSeasonLoading) {
+      return const SliverToBoxAdapter(
+        child: Padding(
+          padding: EdgeInsets.symmetric(vertical: 32),
+          child: Center(
+            child: CircularProgressIndicator(color: Color(0xFFE50914)),
+          ),
+        ),
+      );
+    }
+
+    final season = _store.selectedSeason;
+    if (season == null || season.episodes.isEmpty) {
+      return const SliverToBoxAdapter(
+        child: Padding(
+          padding: EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+          child: Text(
+            'No episodes available',
+            style: TextStyle(color: Colors.white54),
+          ),
+        ),
+      );
+    }
+
+    return SliverPadding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      sliver: SliverList.separated(
+        itemCount: season.episodes.length,
+        separatorBuilder: (_, __) => const SizedBox(height: 12),
+        itemBuilder: (context, index) {
+          final ep = season.episodes[index];
+          return _EpisodeTile(
+            episode: ep,
+            onTap: () => _playEpisode(ep.seasonNumber, ep.episodeNumber),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _EpisodeTile extends StatelessWidget {
+  const _EpisodeTile({required this.episode, required this.onTap});
+
+  final Episode episode;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        decoration: BoxDecoration(
+          color: const Color(0xFF1A1A22),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        padding: const EdgeInsets.all(10),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Stack(
+              alignment: Alignment.center,
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: SizedBox(
+                    width: 130,
+                    height: 76,
+                    child: episode.stillPath != null
+                        ? Image.network(
+                            'https://image.tmdb.org/t/p/w300${episode.stillPath}',
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => Container(
+                              color: Colors.black26,
+                              child: const Icon(
+                                Icons.tv_rounded,
+                                color: Colors.white24,
+                              ),
+                            ),
+                          )
+                        : Container(
+                            color: Colors.black26,
+                            child: const Icon(
+                              Icons.tv_rounded,
+                              color: Colors.white24,
+                            ),
+                          ),
+                  ),
+                ),
+                Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.55),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.play_arrow_rounded,
+                    color: Colors.white,
+                    size: 22,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${episode.episodeNumber}. ${episode.name ?? 'Episode ${episode.episodeNumber}'}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  if (episode.overview != null && episode.overview!.isNotEmpty)
+                    Text(
+                      episode.overview!,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white60,
+                        fontSize: 12,
+                        height: 1.35,
+                      ),
+                    ),
+                  if (episode.runtime != null && episode.runtime! > 0) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      '${episode.runtime}m',
+                      style: const TextStyle(
+                        color: Colors.white38,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
