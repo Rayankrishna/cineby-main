@@ -12,14 +12,32 @@ class MyApp extends StatelessWidget {
   // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
+    const background = Color(0xFF0B0B10);
+    const surface = Color(0xFF16161D);
+    const accent = Color(0xFFE50914);
+
+    final base = ThemeData(
+      useMaterial3: true,
+      brightness: Brightness.dark,
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: accent,
+        brightness: Brightness.dark,
+        surface: surface,
+      ).copyWith(surface: surface),
+      scaffoldBackgroundColor: background,
+      fontFamily: 'Inter',
+    );
+
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-
-      title: 'Flutter Demo',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+      title: 'Cineby',
+      theme: base.copyWith(
+        textTheme: base.textTheme.apply(
+          bodyColor: Colors.white,
+          displayColor: Colors.white,
+        ),
       ),
-      home: MyHomePage(title: 'Flutter Demo Home Page'),
+      home: const MyHomePage(title: 'Cineby'),
     );
   }
 }

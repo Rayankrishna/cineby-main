@@ -15,6 +15,7 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> {
   final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocus = FocusNode();
   final SearchStore _searchStore = SearchStore();
 
   @override
@@ -24,74 +25,127 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   @override
+  void dispose() {
+    _searchController.dispose();
+    _searchFocus.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: SafeArea(
         child: Column(
           children: [
-            Padding(
-              padding: const EdgeInsets.all(8.0),
-              child: TextField(
-                controller: _searchController,
-                decoration: const InputDecoration(
-                  hintText: 'Search...',
-                  border: OutlineInputBorder(),
-                ),
-                onChanged: (value) {
-                  _searchStore.setSearchQuery(value);
-                },
-              ),
-            ),
+            _buildHeader(),
+            _buildSearchBar(),
             Expanded(
               child: Observer(
                 builder: (_) {
                   if (_searchStore.isLoading &&
                       _searchStore.searchResults.isEmpty &&
                       _searchStore.trendingResults.isEmpty) {
-                    return const Center(child: CircularProgressIndicator());
+                    return const Center(
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.5,
+                        color: Color(0xFFE50914),
+                      ),
+                    );
                   }
 
                   if (_searchStore.errorMessage != null) {
-                    return Center(child: Text(_searchStore.errorMessage!));
+                    return Center(
+                      child: Text(
+                        _searchStore.errorMessage!,
+                        style: const TextStyle(color: Colors.white70),
+                      ),
+                    );
                   }
 
+                  final isSearching = _searchStore.searchQuery.isNotEmpty;
                   final results =
-                      _searchStore.searchQuery.isNotEmpty
+                      isSearching
                           ? _searchStore.searchResults
                           : _searchStore.trendingResults;
 
                   if (results.isEmpty) {
-                    return const Center(child: Text("No results found"));
+                    return const Center(
+                      child: Text(
+                        "No results found",
+                        style: TextStyle(color: Colors.white54, fontSize: 15),
+                      ),
+                    );
                   }
 
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      if (_searchStore.searchQuery.isEmpty)
-                        const Padding(
-                          padding: EdgeInsets.all(8.0),
-                          child: Text(
-                            "Trending Today",
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 12, 20, 14),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              isSearching ? "Results" : "Trending Today",
+                              style: const TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: -0.5,
+                                color: Colors.white,
+                              ),
                             ),
-                          ),
+                            if (!isSearching)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: const Color(
+                                    0xFFE50914,
+                                  ).withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.local_fire_department_rounded,
+                                      size: 14,
+                                      color: Color(0xFFE50914),
+                                    ),
+                                    SizedBox(width: 4),
+                                    Text(
+                                      "HOT",
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w700,
+                                        letterSpacing: 1.0,
+                                        color: Color(0xFFE50914),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                          ],
                         ),
+                      ),
                       Expanded(
                         child: GridView.builder(
-                          padding: const EdgeInsets.all(8),
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                           gridDelegate:
                               const SliverGridDelegateWithFixedCrossAxisCount(
                                 crossAxisCount: 3,
-                                childAspectRatio: 0.6,
-                                crossAxisSpacing: 10,
-                                mainAxisSpacing: 10,
+                                childAspectRatio: 0.58,
+                                crossAxisSpacing: 12,
+                                mainAxisSpacing: 18,
                               ),
                           itemCount: results.length,
                           itemBuilder: (context, index) {
                             final result = results[index];
-                            return GestureDetector(
+                            return _PosterCard(
+                              posterPath: result.posterPath,
+                              title: result.title ?? result.name ?? 'Unknown',
                               onTap: () {
                                 Navigator.push(
                                   context,
@@ -103,43 +157,6 @@ class _MyHomePageState extends State<MyHomePage> {
                                   ),
                                 );
                               },
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Expanded(
-                                    child: ClipRRect(
-                                      borderRadius: BorderRadius.circular(8),
-                                      child:
-                                          result.posterPath != null
-                                              ? Image.network(
-                                                "https://image.tmdb.org/t/p/w300${result.posterPath}",
-                                                fit: BoxFit.cover,
-                                                errorBuilder:
-                                                    (
-                                                      context,
-                                                      error,
-                                                      stackTrace,
-                                                    ) => const Center(
-                                                      child: Icon(Icons.movie),
-                                                    ),
-                                              )
-                                              : const Center(
-                                                child: Icon(Icons.movie),
-                                              ),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    result.title ?? result.name ?? 'Unknown',
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                ],
-                              ),
                             );
                           },
                         ),
@@ -151,6 +168,215 @@ class _MyHomePageState extends State<MyHomePage> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildHeader() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFFE50914), Color(0xFFB8070F)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                child: const Icon(
+                  Icons.movie_filter_rounded,
+                  color: Colors.white,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 10),
+              const Text(
+                "Cineby",
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.6,
+                  color: Colors.white,
+                ),
+              ),
+            ],
+          ),
+          Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFF1E1E26),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: IconButton(
+              icon: const Icon(
+                Icons.notifications_none_rounded,
+                color: Colors.white70,
+                size: 22,
+              ),
+              onPressed: () {},
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSearchBar() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
+      child: Container(
+        decoration: BoxDecoration(
+          color: const Color(0xFF1A1A22),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: Colors.white.withValues(alpha: 0.06),
+            width: 1,
+          ),
+        ),
+        child: TextField(
+          controller: _searchController,
+          focusNode: _searchFocus,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 15,
+            fontWeight: FontWeight.w500,
+          ),
+          cursorColor: const Color(0xFFE50914),
+          decoration: InputDecoration(
+            hintText: 'Search movies, shows, people…',
+            hintStyle: const TextStyle(
+              color: Colors.white38,
+              fontWeight: FontWeight.w400,
+              fontSize: 15,
+            ),
+            prefixIcon: const Icon(
+              Icons.search_rounded,
+              color: Colors.white54,
+              size: 22,
+            ),
+            suffixIcon:
+                _searchController.text.isNotEmpty
+                    ? IconButton(
+                      icon: const Icon(
+                        Icons.close_rounded,
+                        color: Colors.white54,
+                        size: 20,
+                      ),
+                      onPressed: () {
+                        _searchController.clear();
+                        _searchStore.setSearchQuery('');
+                        setState(() {});
+                      },
+                    )
+                    : null,
+            border: InputBorder.none,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 8,
+              vertical: 16,
+            ),
+          ),
+          onChanged: (value) {
+            _searchStore.setSearchQuery(value);
+            setState(() {});
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _PosterCard extends StatelessWidget {
+  const _PosterCard({
+    required this.posterPath,
+    required this.title,
+    required this.onTap,
+  });
+
+  final String? posterPath;
+  final String title;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(14),
+                color: const Color(0xFF1A1A22),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.4),
+                    blurRadius: 12,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child:
+                    posterPath != null
+                        ? Image.network(
+                          "https://image.tmdb.org/t/p/w300$posterPath",
+                          fit: BoxFit.cover,
+                          width: double.infinity,
+                          loadingBuilder: (context, child, progress) {
+                            if (progress == null) return child;
+                            return const Center(
+                              child: SizedBox(
+                                width: 22,
+                                height: 22,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white30,
+                                ),
+                              ),
+                            );
+                          },
+                          errorBuilder:
+                              (context, error, stackTrace) => const Center(
+                                child: Icon(
+                                  Icons.movie_rounded,
+                                  color: Colors.white24,
+                                  size: 32,
+                                ),
+                              ),
+                        )
+                        : const Center(
+                          child: Icon(
+                            Icons.movie_rounded,
+                            color: Colors.white24,
+                            size: 32,
+                          ),
+                        ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            title,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: Colors.white,
+              height: 1.25,
+              letterSpacing: -0.1,
+            ),
+          ),
+        ],
       ),
     );
   }

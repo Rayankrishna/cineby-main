@@ -4,7 +4,7 @@
 
 import 'package:dio/dio.dart';
 
-const String serverurl = 'https://vidlink.pro/movie/';
+const String serverurl = 'https://player.videasy.net/movie/';
 
 const String searchUrl =
     'https://db.videasy.net/3/search/multi?language=en&page=1&query=';
