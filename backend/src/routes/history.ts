@@ -67,19 +67,22 @@ router.post('/', async (req, res, next) => {
 router.get('/', async (req, res, next) => {
   try {
     const userId = req.userId!;
-    const { limit, cursor, mediaType } = listHistoryQuerySchema.parse(req.query);
-    const items = await prisma.watchHistoryItem.findMany({
+    const { limit, mediaType } = listHistoryQuerySchema.parse(req.query);
+    const raw = await prisma.watchHistoryItem.findMany({
       where: { userId, ...(mediaType ? { mediaType } : {}) },
       orderBy: { updatedAt: 'desc' },
-      take: limit + 1,
-      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      take: 500,
     });
-    const hasMore = items.length > limit;
-    const page = hasMore ? items.slice(0, limit) : items;
-    res.json({
-      items: page,
-      nextCursor: hasMore ? page[page.length - 1]?.id : null,
-    });
+    const seen = new Set<string>();
+    const items: typeof raw = [];
+    for (const it of raw) {
+      const key = `${it.mediaType}:${it.tmdbId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      items.push(it);
+      if (items.length >= limit) break;
+    }
+    res.json({ items, nextCursor: null });
   } catch (e) {
     next(e);
   }
@@ -114,6 +117,16 @@ router.get('/:tmdbId', async (req, res, next) => {
     const tmdbId = Number(req.params.tmdbId);
     if (!Number.isFinite(tmdbId)) throw new HttpError(400, 'BAD_ID', 'Invalid tmdbId');
     const q = getOneHistoryQuerySchema.parse(req.query);
+
+    // TV without explicit season/episode → return the latest episode watched.
+    if (q.mediaType === 'tv' && (q.season == null || q.episode == null)) {
+      const item = await prisma.watchHistoryItem.findFirst({
+        where: { userId, tmdbId, mediaType: 'tv' },
+        orderBy: { updatedAt: 'desc' },
+      });
+      return res.json({ item });
+    }
+
     const season = q.mediaType === 'tv' ? q.season ?? 0 : null;
     const episode = q.mediaType === 'tv' ? q.episode ?? 0 : null;
     const item = await prisma.watchHistoryItem.findUnique({

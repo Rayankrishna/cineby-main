@@ -17,12 +17,19 @@ class MovieDetailPage extends StatefulWidget {
 
 class _MovieDetailPageState extends State<MovieDetailPage> {
   final MovieDetailStore _store = MovieDetailStore();
+  HistoryItem? _lastWatched;
 
   @override
   void initState() {
     super.initState();
     _store.fetchMovieDetail(widget.movieId);
     watchlistStore.checkContains(widget.movieId, 'movie');
+    _loadLastWatched();
+  }
+
+  Future<void> _loadLastWatched() async {
+    final item = await historyStore.latestForMovie(widget.movieId);
+    if (mounted) setState(() => _lastWatched = item);
   }
 
   String _formatRuntime(int? minutes) {
@@ -228,17 +235,24 @@ class _MovieDetailPageState extends State<MovieDetailPage> {
                               borderRadius: BorderRadius.circular(6),
                             ),
                           ),
-                          icon: const Icon(Icons.play_arrow, size: 28),
-                          label: const Text(
-                            'Play',
-                            style: TextStyle(
+                          icon: Icon(
+                            _lastWatched != null
+                                ? Icons.play_circle_outline_rounded
+                                : Icons.play_arrow,
+                            size: 28,
+                          ),
+                          label: Text(
+                            _lastWatched != null ? 'Resume' : 'Play',
+                            style: const TextStyle(
                                 fontSize: 16, fontWeight: FontWeight.bold),
                           ),
                           onPressed: () {
+                            final resumeSeconds =
+                                _lastWatched?.progressSeconds ?? 0;
                             historyStore.record(
                               tmdbId: movie.id,
                               mediaType: 'movie',
-                              progressSeconds: 0,
+                              progressSeconds: resumeSeconds,
                               durationSeconds: movie.runtime != null
                                   ? movie.runtime! * 60
                                   : null,
@@ -246,13 +260,18 @@ class _MovieDetailPageState extends State<MovieDetailPage> {
                               posterPath: movie.posterPath,
                               backdropPath: movie.backdropPath,
                             );
+                            final progressParam = resumeSeconds > 0
+                                ? '?progress=$resumeSeconds'
+                                : '';
                             Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (_) =>
-                                    MyWidget(url: '$serverurl${movie.id}'),
+                                builder: (_) => MyWidget(
+                                  url:
+                                      '$serverurl${movie.id}$progressParam',
+                                ),
                               ),
-                            );
+                            ).then((_) => _loadLastWatched());
                           },
                         ),
                       ),

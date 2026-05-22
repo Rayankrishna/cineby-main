@@ -87,6 +87,34 @@ abstract class _HistoryStore with Store {
     }
   }
 
+  Future<HistoryItem?> latestForShow(int tmdbId) async {
+    try {
+      final res = await _api.dio.get(
+        '/history/$tmdbId',
+        queryParameters: {'mediaType': 'tv'},
+      );
+      final data = res.data['item'];
+      if (data == null) return null;
+      return HistoryItem.fromJson(data as Map<String, dynamic>);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<HistoryItem?> latestForMovie(int tmdbId) async {
+    try {
+      final res = await _api.dio.get(
+        '/history/$tmdbId',
+        queryParameters: {'mediaType': 'movie'},
+      );
+      final data = res.data['item'];
+      if (data == null) return null;
+      return HistoryItem.fromJson(data as Map<String, dynamic>);
+    } catch (_) {
+      return null;
+    }
+  }
+
   @action
   Future<void> fetchContinueWatching() async {
     try {

@@ -18,12 +18,19 @@ class TvDetailPage extends StatefulWidget {
 
 class _TvDetailPageState extends State<TvDetailPage> {
   final TvDetailStore _store = TvDetailStore();
+  HistoryItem? _lastWatched;
 
   @override
   void initState() {
     super.initState();
     _store.fetchTvDetail(widget.tvId);
     watchlistStore.checkContains(widget.tvId, 'tv');
+    _loadLastWatched();
+  }
+
+  Future<void> _loadLastWatched() async {
+    final item = await historyStore.latestForShow(widget.tvId);
+    if (mounted) setState(() => _lastWatched = item);
   }
 
   String _formatYear(String? date) {
@@ -31,25 +38,26 @@ class _TvDetailPageState extends State<TvDetailPage> {
     return date.split('-').first;
   }
 
-  void _playEpisode(int season, int episode) {
+  void _playEpisode(int season, int episode, {int progressSeconds = 0}) {
     final tv = _store.tvDetail;
     historyStore.record(
       tmdbId: widget.tvId,
       mediaType: 'tv',
       seasonNumber: season,
       episodeNumber: episode,
-      progressSeconds: 0,
+      progressSeconds: progressSeconds,
       title: tv?.name,
       posterPath: tv?.posterPath,
       backdropPath: tv?.backdropPath,
     );
+    final progressParam = progressSeconds > 0 ? '&progress=$progressSeconds' : '';
     final url =
         '$tvServerurl${widget.tvId}/$season/$episode'
-        '?episodeSelector=true&nextEpisode=true&autoplayNextEpisode=true';
+        '?episodeSelector=true&nextEpisode=true&autoplayNextEpisode=true$progressParam';
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => MyWidget(url: url)),
-    );
+    ).then((_) => _loadLastWatched());
   }
 
   @override
@@ -231,16 +239,39 @@ class _TvDetailPageState extends State<TvDetailPage> {
                   borderRadius: BorderRadius.circular(6),
                 ),
               ),
-              icon: const Icon(Icons.play_arrow, size: 28),
-              label: const Text(
-                'Play S1 · E1',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              icon: Icon(
+                _lastWatched != null
+                    ? Icons.play_circle_outline_rounded
+                    : Icons.play_arrow,
+                size: 28,
+              ),
+              label: Text(
+                _lastWatched != null
+                    ? 'Resume S${_lastWatched!.seasonNumber} · E${_lastWatched!.episodeNumber}'
+                    : (() {
+                        final s = tv.seasons.isNotEmpty
+                            ? tv.seasons.first.seasonNumber
+                            : 1;
+                        return 'Play S$s · E1';
+                      })(),
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               onPressed: () {
-                final firstSeason = tv.seasons.isNotEmpty
-                    ? tv.seasons.first.seasonNumber
-                    : 1;
-                _playEpisode(firstSeason, 1);
+                if (_lastWatched != null) {
+                  _playEpisode(
+                    _lastWatched!.seasonNumber ?? 1,
+                    _lastWatched!.episodeNumber ?? 1,
+                    progressSeconds: _lastWatched!.progressSeconds,
+                  );
+                } else {
+                  final firstSeason = tv.seasons.isNotEmpty
+                      ? tv.seasons.first.seasonNumber
+                      : 1;
+                  _playEpisode(firstSeason, 1);
+                }
               },
             ),
           ),

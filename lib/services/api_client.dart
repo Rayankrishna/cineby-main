@@ -7,8 +7,9 @@ class ApiClient {
     _dio = Dio(
       BaseOptions(
         baseUrl: apiBaseUrl,
-        connectTimeout: const Duration(seconds: 15),
-        receiveTimeout: const Duration(seconds: 20),
+        connectTimeout: const Duration(seconds: 60),
+        receiveTimeout: const Duration(seconds: 60),
+        sendTimeout: const Duration(seconds: 60),
         contentType: 'application/json',
       ),
     );
@@ -22,8 +23,7 @@ class ApiClient {
         },
         onError: (e, handler) async {
           final status = e.response?.statusCode;
-          final isAuthCall =
-              e.requestOptions.path.startsWith('/auth/');
+          final isAuthCall = e.requestOptions.path.startsWith('/auth/');
           if (status == 401 && !isAuthCall && _refreshToken != null) {
             final refreshed = await _tryRefresh();
             if (refreshed) {
