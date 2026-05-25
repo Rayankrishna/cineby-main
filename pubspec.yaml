@@ -73,11 +73,11 @@ dev_dependencies:
 flutter_launcher_icons:
   android: "launcher_icon"
   ios: true
-  image_path: "assets/reelix.jpeg"
+  image_path: "assets/favicon.jpg"
   remove_alpha_ios: true
-  background_color_ios: "#0B0B10"
-  adaptive_icon_background: "#0B0B10"
-  adaptive_icon_foreground: "assets/reelix.jpeg"
+  background_color_ios: "#292830"
+  adaptive_icon_background: "#292830"
+  adaptive_icon_foreground: "assets/favicon.jpg"
 
 
 # For information on the generic Dart part of this file, see the

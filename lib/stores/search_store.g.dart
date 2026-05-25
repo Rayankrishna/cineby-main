@@ -81,6 +81,60 @@ mixin _$SearchStore on _SearchStore, Store {
     });
   }
 
+  late final _$topMoviesAtom = Atom(
+    name: '_SearchStore.topMovies',
+    context: context,
+  );
+
+  @override
+  ObservableList<SearchResult> get topMovies {
+    _$topMoviesAtom.reportRead();
+    return super.topMovies;
+  }
+
+  @override
+  set topMovies(ObservableList<SearchResult> value) {
+    _$topMoviesAtom.reportWrite(value, super.topMovies, () {
+      super.topMovies = value;
+    });
+  }
+
+  late final _$topSeriesAtom = Atom(
+    name: '_SearchStore.topSeries',
+    context: context,
+  );
+
+  @override
+  ObservableList<SearchResult> get topSeries {
+    _$topSeriesAtom.reportRead();
+    return super.topSeries;
+  }
+
+  @override
+  set topSeries(ObservableList<SearchResult> value) {
+    _$topSeriesAtom.reportWrite(value, super.topSeries, () {
+      super.topSeries = value;
+    });
+  }
+
+  late final _$topAnimeAtom = Atom(
+    name: '_SearchStore.topAnime',
+    context: context,
+  );
+
+  @override
+  ObservableList<SearchResult> get topAnime {
+    _$topAnimeAtom.reportRead();
+    return super.topAnime;
+  }
+
+  @override
+  set topAnime(ObservableList<SearchResult> value) {
+    _$topAnimeAtom.reportWrite(value, super.topAnime, () {
+      super.topAnime = value;
+    });
+  }
+
   late final _$errorMessageAtom = Atom(
     name: '_SearchStore.errorMessage',
     context: context,
@@ -133,6 +187,16 @@ mixin _$SearchStore on _SearchStore, Store {
     );
   }
 
+  late final _$fetchHomeFeedAsyncAction = AsyncAction(
+    '_SearchStore.fetchHomeFeed',
+    context: context,
+  );
+
+  @override
+  Future<void> fetchHomeFeed() {
+    return _$fetchHomeFeedAsyncAction.run(() => super.fetchHomeFeed());
+  }
+
   @override
   String toString() {
     return '''
@@ -140,6 +204,9 @@ searchQuery: ${searchQuery},
 isLoading: ${isLoading},
 searchResults: ${searchResults},
 trendingResults: ${trendingResults},
+topMovies: ${topMovies},
+topSeries: ${topSeries},
+topAnime: ${topAnime},
 errorMessage: ${errorMessage}
     ''';
   }

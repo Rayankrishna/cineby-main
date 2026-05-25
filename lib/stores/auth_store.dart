@@ -1,6 +1,7 @@
 import 'package:app_web_ui/services/api_client.dart';
 import 'package:dio/dio.dart';
 import 'package:mobx/mobx.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 part 'auth_store.g.dart';
 
@@ -25,10 +26,15 @@ abstract class _AuthStore with Store {
   AuthUser? user;
 
   @observable
+  String? avatarPath;
+
+  @observable
   bool isLoading = false;
 
   @observable
   String? errorMessage;
+
+  String _avatarKey(String userId) => 'reelix.avatar.$userId';
 
   @computed
   bool get isAuthenticated => user != null;
@@ -51,9 +57,30 @@ abstract class _AuthStore with Store {
     try {
       final res = await _api.dio.get('/me');
       user = AuthUser.fromJson(res.data as Map<String, dynamic>);
+      await _loadAvatar();
     } catch (_) {
       await _api.clearTokens();
       user = null;
+    }
+  }
+
+  Future<void> _loadAvatar() async {
+    final u = user;
+    if (u == null) return;
+    final prefs = await SharedPreferences.getInstance();
+    avatarPath = prefs.getString(_avatarKey(u.id));
+  }
+
+  @action
+  Future<void> setAvatarPath(String? path) async {
+    avatarPath = path;
+    final u = user;
+    if (u == null) return;
+    final prefs = await SharedPreferences.getInstance();
+    if (path == null) {
+      await prefs.remove(_avatarKey(u.id));
+    } else {
+      await prefs.setString(_avatarKey(u.id), path);
     }
   }
 
@@ -76,6 +103,7 @@ abstract class _AuthStore with Store {
         res.data['refreshToken'] as String,
       );
       user = AuthUser.fromJson(res.data['user'] as Map<String, dynamic>);
+      await _loadAvatar();
       return true;
     } catch (e) {
       errorMessage = _extractError(e);
@@ -99,6 +127,7 @@ abstract class _AuthStore with Store {
         res.data['refreshToken'] as String,
       );
       user = AuthUser.fromJson(res.data['user'] as Map<String, dynamic>);
+      await _loadAvatar();
       return true;
     } catch (e) {
       errorMessage = _extractError(e);
@@ -112,6 +141,7 @@ abstract class _AuthStore with Store {
   Future<void> logout() async {
     await _api.clearTokens();
     user = null;
+    avatarPath = null;
   }
 }
 

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:collection';
 import 'package:app_web_ui/services/config.dart';
 import 'package:app_web_ui/stores/history_store.dart';
@@ -12,6 +13,10 @@ class MyWidget extends StatefulWidget {
   final String? url;
   final int? tmdbId;
   final String? mediaType; // 'movie' | 'tv'
+  final int? seasonNumber;
+  final int? episodeNumber;
+  final int? durationSeconds;
+  final int initialProgressSeconds;
   final String? title;
   final String? posterPath;
   final String? backdropPath;
@@ -21,6 +26,10 @@ class MyWidget extends StatefulWidget {
     this.url,
     this.tmdbId,
     this.mediaType,
+    this.seasonNumber,
+    this.episodeNumber,
+    this.durationSeconds,
+    this.initialProgressSeconds = 0,
     this.title,
     this.posterPath,
     this.backdropPath,
@@ -39,6 +48,13 @@ class _MyWidgetState extends State<MyWidget> {
 
   DateTime _lastSavedAt = DateTime.fromMillisecondsSinceEpoch(0);
   int _lastSavedSeconds = -1;
+
+  // Fallback elapsed-time tracker for when Videasy postMessage doesn't reach us.
+  Timer? _elapsedTimer;
+  DateTime? _watchStart;
+  int _elapsedBaseline = 0;
+  bool _gotPlayerEvent = false;
+  int? _knownDuration;
 
   final InAppWebViewSettings settings = InAppWebViewSettings(
     isInspectable: true,
@@ -60,6 +76,9 @@ class _MyWidgetState extends State<MyWidget> {
     super.initState();
     _currentUrl = widget.url ?? serverurl;
     _initialHost = WebUri(_currentUrl).host;
+    _elapsedBaseline = widget.initialProgressSeconds;
+    _knownDuration = widget.durationSeconds;
+    _watchStart = DateTime.now();
     _initAdBlocker();
     WakelockPlus.enable();
     SystemChrome.setPreferredOrientations([
@@ -67,6 +86,11 @@ class _MyWidgetState extends State<MyWidget> {
       DeviceOrientation.landscapeRight,
     ]);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+
+    // Fallback: save approximate progress every 15s based on elapsed time.
+    // If the player posts messages we use that instead (more accurate).
+    _elapsedTimer =
+        Timer.periodic(const Duration(seconds: 15), (_) => _saveElapsed());
   }
 
   Future<void> _initAdBlocker() async {
@@ -78,6 +102,9 @@ class _MyWidgetState extends State<MyWidget> {
 
   @override
   void dispose() {
+    _elapsedTimer?.cancel();
+    // Final save when the user closes the player.
+    _saveElapsed();
     WakelockPlus.disable();
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
@@ -88,6 +115,33 @@ class _MyWidgetState extends State<MyWidget> {
       overlays: SystemUiOverlay.values,
     );
     super.dispose();
+  }
+
+  void _saveElapsed() {
+    // Skip if the player already reported real progress recently.
+    if (_gotPlayerEvent) return;
+    if (widget.tmdbId == null || widget.mediaType == null) return;
+    if (_watchStart == null) return;
+
+    final elapsedSecs =
+        DateTime.now().difference(_watchStart!).inSeconds;
+    final progress = _elapsedBaseline + elapsedSecs;
+    if (progress <= _lastSavedSeconds) return;
+
+    _lastSavedAt = DateTime.now();
+    _lastSavedSeconds = progress;
+
+    historyStore.record(
+      tmdbId: widget.tmdbId!,
+      mediaType: widget.mediaType!,
+      seasonNumber: widget.seasonNumber,
+      episodeNumber: widget.episodeNumber,
+      progressSeconds: progress,
+      durationSeconds: _knownDuration,
+      title: widget.title,
+      posterPath: widget.posterPath,
+      backdropPath: widget.backdropPath,
+    );
   }
 
   bool _isAdUrl(String url) {
@@ -117,6 +171,9 @@ class _MyWidgetState extends State<MyWidget> {
     final duration = (data['duration'] as num?)?.round();
     if (timestamp == null) return;
 
+    _gotPlayerEvent = true;
+    if (duration != null && duration > 0) _knownDuration = duration;
+
     final now = DateTime.now();
     final timeDelta = now.difference(_lastSavedAt).inSeconds;
     final seekDelta = (_lastSavedSeconds - timestamp).abs();
@@ -125,8 +182,8 @@ class _MyWidgetState extends State<MyWidget> {
     _lastSavedAt = now;
     _lastSavedSeconds = timestamp;
 
-    final season = (data['season'] as num?)?.toInt();
-    final episode = (data['episode'] as num?)?.toInt();
+    final season = (data['season'] as num?)?.toInt() ?? widget.seasonNumber;
+    final episode = (data['episode'] as num?)?.toInt() ?? widget.episodeNumber;
 
     historyStore.record(
       tmdbId: widget.tmdbId!,
@@ -134,7 +191,7 @@ class _MyWidgetState extends State<MyWidget> {
       seasonNumber: widget.mediaType == 'tv' ? season : null,
       episodeNumber: widget.mediaType == 'tv' ? episode : null,
       progressSeconds: timestamp,
-      durationSeconds: duration,
+      durationSeconds: _knownDuration,
       title: widget.title,
       posterPath: widget.posterPath,
       backdropPath: widget.backdropPath,
@@ -237,7 +294,7 @@ class _MyWidgetState extends State<MyWidget> {
             ),
             if (_isLoading)
               const Center(
-                child: CircularProgressIndicator(color: Color(0xFFE50914)),
+                child: CircularProgressIndicator(color: Color(0xFFEF0003)),
               ),
           ],
         ),

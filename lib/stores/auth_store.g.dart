@@ -34,6 +34,24 @@ mixin _$AuthStore on _AuthStore, Store {
     });
   }
 
+  late final _$avatarPathAtom = Atom(
+    name: '_AuthStore.avatarPath',
+    context: context,
+  );
+
+  @override
+  String? get avatarPath {
+    _$avatarPathAtom.reportRead();
+    return super.avatarPath;
+  }
+
+  @override
+  set avatarPath(String? value) {
+    _$avatarPathAtom.reportWrite(value, super.avatarPath, () {
+      super.avatarPath = value;
+    });
+  }
+
   late final _$isLoadingAtom = Atom(
     name: '_AuthStore.isLoading',
     context: context,
@@ -80,6 +98,16 @@ mixin _$AuthStore on _AuthStore, Store {
     return _$bootstrapAsyncAction.run(() => super.bootstrap());
   }
 
+  late final _$setAvatarPathAsyncAction = AsyncAction(
+    '_AuthStore.setAvatarPath',
+    context: context,
+  );
+
+  @override
+  Future<void> setAvatarPath(String? path) {
+    return _$setAvatarPathAsyncAction.run(() => super.setAvatarPath(path));
+  }
+
   late final _$registerAsyncAction = AsyncAction(
     '_AuthStore.register',
     context: context,
@@ -122,6 +150,7 @@ mixin _$AuthStore on _AuthStore, Store {
   String toString() {
     return '''
 user: ${user},
+avatarPath: ${avatarPath},
 isLoading: ${isLoading},
 errorMessage: ${errorMessage},
 isAuthenticated: ${isAuthenticated}

@@ -96,7 +96,7 @@ class _LoginPageState extends State<LoginPage> {
                       child: Text(
                         authStore.errorMessage!,
                         style: const TextStyle(
-                            color: Color(0xFFE50914), fontSize: 13),
+                            color: Color(0xFFEF0003), fontSize: 13),
                       ),
                     );
                   }
@@ -107,7 +107,7 @@ class _LoginPageState extends State<LoginPage> {
                     height: 50,
                     child: ElevatedButton(
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFE50914),
+                        backgroundColor: const Color(0xFFEF0003),
                         foregroundColor: Colors.white,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
@@ -158,7 +158,7 @@ class _LoginPageState extends State<LoginPage> {
   }) {
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFF1A1A22),
+        color: const Color(0xFF35343E),
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
       ),
@@ -167,7 +167,7 @@ class _LoginPageState extends State<LoginPage> {
         obscureText: obscure,
         keyboardType: keyboard,
         style: const TextStyle(color: Colors.white, fontSize: 15),
-        cursorColor: const Color(0xFFE50914),
+        cursorColor: const Color(0xFFEF0003),
         decoration: InputDecoration(
           hintText: hint,
           hintStyle: const TextStyle(color: Colors.white38),

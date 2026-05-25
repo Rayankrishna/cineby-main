@@ -1,7 +1,8 @@
 import 'package:app_web_ui/services/page_transitions.dart';
-import 'package:app_web_ui/services/pages/home.dart';
 import 'package:app_web_ui/services/pages/login_page.dart';
+import 'package:app_web_ui/services/pages/root_shell.dart';
 import 'package:app_web_ui/stores/auth_store.dart';
+import 'package:bot_toast/bot_toast.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
@@ -22,9 +23,9 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const background = Color(0xFF0B0B10);
-    const surface = Color(0xFF16161D);
-    const accent = Color(0xFFE50914);
+    const background = Color(0xFF292830);
+    const surface = Color(0xFF35343E);
+    const accent = Color(0xFFEF0003);
 
     final base = ThemeData(
       useMaterial3: true,
@@ -42,15 +43,18 @@ class MyApp extends StatelessWidget {
       base.textTheme,
     ).apply(bodyColor: Colors.white, displayColor: Colors.white);
 
+    final botToastBuilder = BotToastInit();
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Reelix',
       theme: base.copyWith(textTheme: textTheme),
+      navigatorObservers: [BotToastNavigatorObserver()],
+      builder: (context, child) => botToastBuilder(context, child),
       home: Observer(
         builder:
             (_) =>
                 authStore.isAuthenticated
-                    ? const MyHomePage(title: 'Reelix')
+                    ? const RootShell()
                     : const LoginPage(),
       ),
     );

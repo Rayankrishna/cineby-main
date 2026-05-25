@@ -12,6 +12,13 @@ const String searchUrl =
 const String homeUrl =
     "https://db.videasy.net/3/trending/all/day?region=US&language=en";
 
+const String topMoviesUrl =
+    'https://db.videasy.net/3/discover/movie?sort_by=popularity.desc&language=en&page=1';
+const String topSeriesUrl =
+    'https://db.videasy.net/3/discover/tv?sort_by=popularity.desc&language=en&page=1';
+const String topAnimeUrl =
+    'https://db.videasy.net/3/discover/tv?with_genres=16&with_origin_country=JP|CN&sort_by=popularity.desc&language=en&page=1';
+
 const String movieDetailUrl = 'https://db.videasy.net/3/movie';
 const String movieDetailParams =
     '?append_to_response=credits,external_ids,videos&language=en';

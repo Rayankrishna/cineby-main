@@ -2,6 +2,7 @@ import 'package:app_web_ui/services/config.dart';
 import 'package:app_web_ui/services/page_transitions.dart';
 import 'package:app_web_ui/services/pages/webview.dart';
 import 'package:app_web_ui/services/responsive.dart';
+import 'package:app_web_ui/services/toast.dart';
 import 'package:app_web_ui/stores/history_store.dart';
 import 'package:app_web_ui/stores/movie_detail_store.dart';
 import 'package:app_web_ui/stores/watchlist_store.dart';
@@ -54,7 +55,7 @@ class _MovieDetailPageState extends State<MovieDetailPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF141414),
+      backgroundColor: const Color(0xFF292830),
       body: Observer(
         builder: (_) {
           if (_store.isLoading) {
@@ -127,7 +128,7 @@ class _MovieDetailPageState extends State<MovieDetailPage> {
                             end: Alignment.bottomCenter,
                             colors: [
                               Colors.transparent,
-                              Color(0xFF141414),
+                              Color(0xFF292830),
                             ],
                             stops: [0.4, 1.0],
                           ),
@@ -161,7 +162,7 @@ class _MovieDetailPageState extends State<MovieDetailPage> {
                                 ? Icons.bookmark_rounded
                                 : Icons.bookmark_outline_rounded,
                             color: inList
-                                ? const Color(0xFFE50914)
+                                ? const Color(0xFFF7BB0D)
                                 : Colors.white,
                           ),
                           onPressed: () => watchlistStore.toggle(
@@ -220,7 +221,7 @@ class _MovieDetailPageState extends State<MovieDetailPage> {
                           ],
                           if (movie.voteAverage != null) ...[
                             const Icon(Icons.star,
-                                color: Colors.amber, size: 16),
+                                color: Color(0xFFF7BB0D), size: 16),
                             const SizedBox(width: 4),
                             Text(
                               movie.voteAverage!.toStringAsFixed(1),
@@ -265,6 +266,7 @@ class _MovieDetailPageState extends State<MovieDetailPage> {
                                 fontSize: 16, fontWeight: FontWeight.bold),
                           ),
                           onPressed: () {
+                            showPlayerHintToast();
                             final resumeSeconds =
                                 _lastWatched?.progressSeconds ?? 0;
                             historyStore.record(
@@ -289,6 +291,10 @@ class _MovieDetailPageState extends State<MovieDetailPage> {
                                       '$serverurl${movie.id}$progressParam',
                                   tmdbId: movie.id,
                                   mediaType: 'movie',
+                                  durationSeconds: movie.runtime != null
+                                      ? movie.runtime! * 60
+                                      : null,
+                                  initialProgressSeconds: resumeSeconds,
                                   title: movie.title,
                                   posterPath: movie.posterPath,
                                   backdropPath: movie.backdropPath,
@@ -311,7 +317,7 @@ class _MovieDetailPageState extends State<MovieDetailPage> {
                             minHeight: 3,
                             backgroundColor: Colors.white12,
                             valueColor: const AlwaysStoppedAnimation(
-                                Color(0xFFE50914)),
+                                Color(0xFFEF0003)),
                           ),
                         ),
                       ],

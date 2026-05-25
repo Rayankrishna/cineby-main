@@ -47,7 +47,7 @@ class _LibraryPageState extends State<LibraryPage>
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: const Color(0xFF0B0B10),
+        backgroundColor: const Color(0xFF292830),
         elevation: 0,
         title: const Text(
           'Library',
@@ -73,7 +73,7 @@ class _LibraryPageState extends State<LibraryPage>
           controller: _tab,
           labelColor: Colors.white,
           unselectedLabelColor: Colors.white54,
-          indicatorColor: const Color(0xFFE50914),
+          indicatorColor: const Color(0xFFEF0003),
           indicatorWeight: 2.5,
           labelStyle: const TextStyle(fontWeight: FontWeight.w600),
           tabs: const [
@@ -95,7 +95,7 @@ class _LibraryPageState extends State<LibraryPage>
     return Observer(builder: (_) {
       if (watchlistStore.isLoading && watchlistStore.items.isEmpty) {
         return const Center(
-          child: CircularProgressIndicator(color: Color(0xFFE50914)),
+          child: CircularProgressIndicator(color: Color(0xFFEF0003)),
         );
       }
       if (watchlistStore.items.isEmpty) {
@@ -107,7 +107,7 @@ class _LibraryPageState extends State<LibraryPage>
         );
       }
       return RefreshIndicator(
-        color: const Color(0xFFE50914),
+        color: const Color(0xFFEF0003),
         onRefresh: watchlistStore.fetch,
         child: GridView.builder(
           padding: const EdgeInsets.all(16),
@@ -140,7 +140,7 @@ class _LibraryPageState extends State<LibraryPage>
     return Observer(builder: (_) {
       if (historyStore.isLoading && historyStore.items.isEmpty) {
         return const Center(
-          child: CircularProgressIndicator(color: Color(0xFFE50914)),
+          child: CircularProgressIndicator(color: Color(0xFFEF0003)),
         );
       }
       if (historyStore.items.isEmpty) {
@@ -152,7 +152,7 @@ class _LibraryPageState extends State<LibraryPage>
         );
       }
       return RefreshIndicator(
-        color: const Color(0xFFE50914),
+        color: const Color(0xFFEF0003),
         onRefresh: historyStore.fetch,
         child: ListView.separated(
           padding: const EdgeInsets.all(16),
@@ -171,7 +171,7 @@ class _LibraryPageState extends State<LibraryPage>
                 alignment: Alignment.centerRight,
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFE50914),
+                  color: const Color(0xFFEF0003),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: const Icon(Icons.delete_outline, color: Colors.white),
@@ -183,7 +183,7 @@ class _LibraryPageState extends State<LibraryPage>
                 child: Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF1A1A22),
+                    color: const Color(0xFF35343E),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Row(
@@ -247,7 +247,7 @@ class _LibraryPageState extends State<LibraryPage>
                                 minHeight: 3,
                                 backgroundColor: Colors.white12,
                                 valueColor: const AlwaysStoppedAnimation(
-                                  Color(0xFFE50914),
+                                  Color(0xFFEF0003),
                                 ),
                               ),
                             ),
@@ -288,7 +288,7 @@ class _PosterCard extends StatelessWidget {
             child: Container(
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(14),
-                color: const Color(0xFF1A1A22),
+                color: const Color(0xFF35343E),
               ),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(14),

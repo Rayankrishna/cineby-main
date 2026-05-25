@@ -21,6 +21,15 @@ abstract class _SearchStore with Store {
   ObservableList<SearchResult> trendingResults = ObservableList<SearchResult>();
 
   @observable
+  ObservableList<SearchResult> topMovies = ObservableList<SearchResult>();
+
+  @observable
+  ObservableList<SearchResult> topSeries = ObservableList<SearchResult>();
+
+  @observable
+  ObservableList<SearchResult> topAnime = ObservableList<SearchResult>();
+
+  @observable
   String? errorMessage;
 
   @action
@@ -64,6 +73,57 @@ abstract class _SearchStore with Store {
       } else {
         errorMessage = 'Failed to load trending results';
       }
+    } catch (e) {
+      errorMessage = e.toString();
+    } finally {
+      isLoading = false;
+    }
+  }
+
+  Future<List<SearchResult>> _fetchList(String url, {String? mediaType}) async {
+    try {
+      final res = await Dio().get(url);
+      if (res.statusCode != 200) return const [];
+      final list = SearchResponse.fromJson(res.data).results;
+      if (mediaType == null) return list;
+      // /discover endpoints don't include media_type — patch it in so home
+      // navigation can route movies vs TV correctly.
+      return list
+          .map((r) => SearchResult(
+                id: r.id,
+                title: r.title,
+                name: r.name,
+                originalTitle: r.originalTitle,
+                originalName: r.originalName,
+                overview: r.overview,
+                posterPath: r.posterPath,
+                backdropPath: r.backdropPath,
+                mediaType: mediaType,
+                releaseDate: r.releaseDate,
+                voteAverage: r.voteAverage,
+                voteCount: r.voteCount,
+              ))
+          .toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  @action
+  Future<void> fetchHomeFeed() async {
+    isLoading = true;
+    errorMessage = null;
+    try {
+      final results = await Future.wait<List<SearchResult>>([
+        _fetchList(homeUrl),
+        _fetchList(topMoviesUrl, mediaType: 'movie'),
+        _fetchList(topSeriesUrl, mediaType: 'tv'),
+        _fetchList(topAnimeUrl, mediaType: 'tv'),
+      ]);
+      trendingResults = ObservableList.of(results[0]);
+      topMovies = ObservableList.of(results[1]);
+      topSeries = ObservableList.of(results[2]);
+      topAnime = ObservableList.of(results[3]);
     } catch (e) {
       errorMessage = e.toString();
     } finally {

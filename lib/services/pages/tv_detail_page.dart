@@ -3,6 +3,7 @@ import 'package:app_web_ui/services/config.dart';
 import 'package:app_web_ui/services/page_transitions.dart';
 import 'package:app_web_ui/services/pages/webview.dart';
 import 'package:app_web_ui/services/responsive.dart';
+import 'package:app_web_ui/services/toast.dart';
 import 'package:app_web_ui/stores/history_store.dart';
 import 'package:app_web_ui/stores/tv_detail_store.dart';
 import 'package:app_web_ui/stores/watchlist_store.dart';
@@ -45,14 +46,29 @@ class _TvDetailPageState extends State<TvDetailPage> {
     return date.split('-').first;
   }
 
-  void _playEpisode(int season, int episode, {int progressSeconds = 0}) {
+  void _playEpisode(
+    int season,
+    int episode, {
+    int progressSeconds = 0,
+    int? runtimeMinutes,
+  }) {
+    showPlayerHintToast();
     final tv = _store.tvDetail;
+    // Look up episode runtime from the loaded season if not provided.
+    final ep = _store.selectedSeason?.episodes.firstWhere(
+      (e) => e.seasonNumber == season && e.episodeNumber == episode,
+      orElse: () => _store.selectedSeason!.episodes.first,
+    );
+    final runtime = runtimeMinutes ?? ep?.runtime;
+    final durationSeconds = (runtime != null && runtime > 0) ? runtime * 60 : null;
+
     historyStore.record(
       tmdbId: widget.tvId,
       mediaType: 'tv',
       seasonNumber: season,
       episodeNumber: episode,
       progressSeconds: progressSeconds,
+      durationSeconds: durationSeconds,
       title: tv?.name,
       posterPath: tv?.posterPath,
       backdropPath: tv?.backdropPath,
@@ -68,6 +84,10 @@ class _TvDetailPageState extends State<TvDetailPage> {
           url: url,
           tmdbId: widget.tvId,
           mediaType: 'tv',
+          seasonNumber: season,
+          episodeNumber: episode,
+          durationSeconds: durationSeconds,
+          initialProgressSeconds: progressSeconds,
           title: tv?.name,
           posterPath: tv?.posterPath,
           backdropPath: tv?.backdropPath,
@@ -79,12 +99,12 @@ class _TvDetailPageState extends State<TvDetailPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF141414),
+      backgroundColor: const Color(0xFF292830),
       body: Observer(
         builder: (_) {
           if (_store.isLoading && _store.tvDetail == null) {
             return const Center(
-              child: CircularProgressIndicator(color: Color(0xFFE50914)),
+              child: CircularProgressIndicator(color: Color(0xFFEF0003)),
             );
           }
 
@@ -97,7 +117,7 @@ class _TvDetailPageState extends State<TvDetailPage> {
                   children: [
                     const Icon(
                       Icons.error_outline,
-                      color: Color(0xFFE50914),
+                      color: Color(0xFFEF0003),
                       size: 48,
                     ),
                     const SizedBox(height: 16),
@@ -162,7 +182,7 @@ class _TvDetailPageState extends State<TvDetailPage> {
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
-                colors: [Colors.transparent, Color(0xFF141414)],
+                colors: [Colors.transparent, Color(0xFF292830)],
                 stops: [0.4, 1.0],
               ),
             ),
@@ -187,7 +207,7 @@ class _TvDetailPageState extends State<TvDetailPage> {
                 inList
                     ? Icons.bookmark_rounded
                     : Icons.bookmark_outline_rounded,
-                color: inList ? const Color(0xFFE50914) : Colors.white,
+                color: inList ? const Color(0xFFF7BB0D) : Colors.white,
               ),
               onPressed: () => watchlistStore.toggle(
                 tmdbId: widget.tvId,
@@ -237,7 +257,7 @@ class _TvDetailPageState extends State<TvDetailPage> {
                 const SizedBox(width: 12),
               ],
               if (tv.voteAverage != null) ...[
-                const Icon(Icons.star, color: Colors.amber, size: 16),
+                const Icon(Icons.star, color: Color(0xFFF7BB0D), size: 16),
                 const SizedBox(width: 4),
                 Text(
                   tv.voteAverage!.toStringAsFixed(1),
@@ -315,7 +335,7 @@ class _TvDetailPageState extends State<TvDetailPage> {
                 minHeight: 3,
                 backgroundColor: Colors.white12,
                 valueColor:
-                    const AlwaysStoppedAnimation(Color(0xFFE50914)),
+                    const AlwaysStoppedAnimation(Color(0xFFEF0003)),
               ),
             ),
           ],
@@ -410,7 +430,7 @@ class _TvDetailPageState extends State<TvDetailPage> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12),
             decoration: BoxDecoration(
-              color: const Color(0xFF1E1E26),
+              color: const Color(0xFF35343E),
               borderRadius: BorderRadius.circular(10),
               border: Border.all(
                 color: Colors.white.withValues(alpha: 0.08),
@@ -420,7 +440,7 @@ class _TvDetailPageState extends State<TvDetailPage> {
             child: DropdownButtonHideUnderline(
               child: DropdownButton<int>(
                 value: _store.selectedSeasonNumber,
-                dropdownColor: const Color(0xFF1E1E26),
+                dropdownColor: const Color(0xFF35343E),
                 style: const TextStyle(
                   color: Colors.white,
                   fontSize: 14,
@@ -459,7 +479,7 @@ class _TvDetailPageState extends State<TvDetailPage> {
         child: Padding(
           padding: EdgeInsets.symmetric(vertical: 32),
           child: Center(
-            child: CircularProgressIndicator(color: Color(0xFFE50914)),
+            child: CircularProgressIndicator(color: Color(0xFFEF0003)),
           ),
         ),
       );
@@ -508,7 +528,7 @@ class _EpisodeTile extends StatelessWidget {
       borderRadius: BorderRadius.circular(12),
       child: Container(
         decoration: BoxDecoration(
-          color: const Color(0xFF1A1A22),
+          color: const Color(0xFF35343E),
           borderRadius: BorderRadius.circular(12),
         ),
         padding: const EdgeInsets.all(10),
