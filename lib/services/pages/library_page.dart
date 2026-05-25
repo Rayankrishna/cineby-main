@@ -1,5 +1,7 @@
+import 'package:app_web_ui/services/page_transitions.dart';
 import 'package:app_web_ui/services/pages/movie_detail_page.dart';
 import 'package:app_web_ui/services/pages/tv_detail_page.dart';
+import 'package:app_web_ui/services/responsive.dart';
 import 'package:app_web_ui/stores/auth_store.dart';
 import 'package:app_web_ui/stores/history_store.dart';
 import 'package:app_web_ui/stores/watchlist_store.dart';
@@ -80,9 +82,11 @@ class _LibraryPageState extends State<LibraryPage>
           ],
         ),
       ),
-      body: TabBarView(
-        controller: _tab,
-        children: [_watchlistTab(), _historyTab()],
+      body: CenteredMaxWidth(
+        child: TabBarView(
+          controller: _tab,
+          children: [_watchlistTab(), _historyTab()],
+        ),
       ),
     );
   }
@@ -107,8 +111,10 @@ class _LibraryPageState extends State<LibraryPage>
         onRefresh: watchlistStore.fetch,
         child: GridView.builder(
           padding: const EdgeInsets.all(16),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 3,
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: posterGridColumns(
+              MediaQuery.of(context).size.width,
+            ),
             childAspectRatio: 0.58,
             crossAxisSpacing: 12,
             mainAxisSpacing: 18,
@@ -116,10 +122,13 @@ class _LibraryPageState extends State<LibraryPage>
           itemCount: watchlistStore.items.length,
           itemBuilder: (context, index) {
             final item = watchlistStore.items[index];
-            return _PosterCard(
-              posterPath: item.posterPath,
-              title: item.title ?? 'Unknown',
-              onTap: () => _openDetail(item.tmdbId, item.mediaType),
+            return FadeInUp(
+              delay: Duration(milliseconds: 30 * (index % 12)),
+              child: _PosterCard(
+                posterPath: item.posterPath,
+                title: item.title ?? 'Unknown',
+                onTap: () => _openDetail(item.tmdbId, item.mediaType),
+              ),
             );
           },
         ),
@@ -305,15 +314,18 @@ class _PosterCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 8),
-          Text(
-            title,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: Colors.white,
-              height: 1.25,
+          SizedBox(
+            height: 34,
+            child: Text(
+              title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
+                height: 1.25,
+              ),
             ),
           ),
         ],

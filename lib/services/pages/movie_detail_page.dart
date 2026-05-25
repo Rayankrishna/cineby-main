@@ -1,5 +1,7 @@
 import 'package:app_web_ui/services/config.dart';
+import 'package:app_web_ui/services/page_transitions.dart';
 import 'package:app_web_ui/services/pages/webview.dart';
+import 'package:app_web_ui/services/responsive.dart';
 import 'package:app_web_ui/stores/history_store.dart';
 import 'package:app_web_ui/stores/movie_detail_store.dart';
 import 'package:app_web_ui/stores/watchlist_store.dart';
@@ -18,6 +20,7 @@ class MovieDetailPage extends StatefulWidget {
 class _MovieDetailPageState extends State<MovieDetailPage> {
   final MovieDetailStore _store = MovieDetailStore();
   HistoryItem? _lastWatched;
+  bool _lastWatchedLoaded = false;
 
   @override
   void initState() {
@@ -29,7 +32,11 @@ class _MovieDetailPageState extends State<MovieDetailPage> {
 
   Future<void> _loadLastWatched() async {
     final item = await historyStore.latestForMovie(widget.movieId);
-    if (mounted) setState(() => _lastWatched = item);
+    if (!mounted) return;
+    setState(() {
+      _lastWatched = item;
+      _lastWatchedLoaded = true;
+    });
   }
 
   String _formatRuntime(int? minutes) {
@@ -172,7 +179,10 @@ class _MovieDetailPageState extends State<MovieDetailPage> {
 
               // Content
               SliverToBoxAdapter(
-                child: Padding(
+                child: FadeInUp(
+                  duration: const Duration(milliseconds: 380),
+                  offset: 20,
+                  child: CenteredMaxWidth(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -223,10 +233,18 @@ class _MovieDetailPageState extends State<MovieDetailPage> {
 
                       const SizedBox(height: 16),
 
-                      // Play button
+                      // Play button (hidden until we know watch state)
                       SizedBox(
                         width: double.infinity,
-                        child: ElevatedButton.icon(
+                        height: 52,
+                        child: !_lastWatchedLoaded
+                            ? Container(
+                                decoration: BoxDecoration(
+                                  color: Colors.white12,
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                              )
+                            : ElevatedButton.icon(
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.white,
                             foregroundColor: Colors.black,
@@ -269,12 +287,34 @@ class _MovieDetailPageState extends State<MovieDetailPage> {
                                 builder: (_) => MyWidget(
                                   url:
                                       '$serverurl${movie.id}$progressParam',
+                                  tmdbId: movie.id,
+                                  mediaType: 'movie',
+                                  title: movie.title,
+                                  posterPath: movie.posterPath,
+                                  backdropPath: movie.backdropPath,
                                 ),
                               ),
                             ).then((_) => _loadLastWatched());
                           },
                         ),
                       ),
+                      if (_lastWatched != null &&
+                          _lastWatched!.durationSeconds != null &&
+                          _lastWatched!.durationSeconds! > 0) ...[
+                        const SizedBox(height: 8),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(2),
+                          child: LinearProgressIndicator(
+                            value: (_lastWatched!.progressSeconds /
+                                    _lastWatched!.durationSeconds!)
+                                .clamp(0.0, 1.0),
+                            minHeight: 3,
+                            backgroundColor: Colors.white12,
+                            valueColor: const AlwaysStoppedAnimation(
+                                Color(0xFFE50914)),
+                          ),
+                        ),
+                      ],
 
                       const SizedBox(height: 16),
 
@@ -367,6 +407,7 @@ class _MovieDetailPageState extends State<MovieDetailPage> {
                       ],
                     ],
                   ),
+                ),
                 ),
               ),
 

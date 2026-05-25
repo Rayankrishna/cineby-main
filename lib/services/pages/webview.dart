@@ -1,14 +1,30 @@
 import 'dart:collection';
 import 'package:app_web_ui/services/config.dart';
+import 'package:app_web_ui/stores/history_store.dart';
 import 'package:adblocker_webview/adblocker_webview.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
 class MyWidget extends StatefulWidget {
   final String? url;
-  const MyWidget({super.key, this.url});
+  final int? tmdbId;
+  final String? mediaType; // 'movie' | 'tv'
+  final String? title;
+  final String? posterPath;
+  final String? backdropPath;
+
+  const MyWidget({
+    super.key,
+    this.url,
+    this.tmdbId,
+    this.mediaType,
+    this.title,
+    this.posterPath,
+    this.backdropPath,
+  });
 
   @override
   State<MyWidget> createState() => _MyWidgetState();
@@ -21,10 +37,13 @@ class _MyWidgetState extends State<MyWidget> {
   Key _webViewKey = UniqueKey();
   bool _isLoading = true;
 
+  DateTime _lastSavedAt = DateTime.fromMillisecondsSinceEpoch(0);
+  int _lastSavedSeconds = -1;
+
   final InAppWebViewSettings settings = InAppWebViewSettings(
     isInspectable: true,
     javaScriptEnabled: true,
-    javaScriptCanOpenWindowsAutomatically: false, // BLOCKS POP-UNDERS
+    javaScriptCanOpenWindowsAutomatically: false,
     mediaPlaybackRequiresUserGesture: false,
     allowsInlineMediaPlayback: true,
     iframeAllowFullscreen: true,
@@ -43,6 +62,11 @@ class _MyWidgetState extends State<MyWidget> {
     _initialHost = WebUri(_currentUrl).host;
     _initAdBlocker();
     WakelockPlus.enable();
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
   }
 
   Future<void> _initAdBlocker() async {
@@ -55,10 +79,16 @@ class _MyWidgetState extends State<MyWidget> {
   @override
   void dispose() {
     WakelockPlus.disable();
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+    ]);
+    SystemChrome.setEnabledSystemUIMode(
+      SystemUiMode.manual,
+      overlays: SystemUiOverlay.values,
+    );
     super.dispose();
   }
-
-  InAppWebViewController? _webViewController;
 
   bool _isAdUrl(String url) {
     final adDomains = [
@@ -79,6 +109,38 @@ class _MyWidgetState extends State<MyWidget> {
     return adDomains.any((domain) => url.contains(domain));
   }
 
+  // Save progress at most every 10s OR when the playback position jumps >15s.
+  Future<void> _handleProgress(Map<String, dynamic> data) async {
+    if (widget.tmdbId == null || widget.mediaType == null) return;
+
+    final timestamp = (data['timestamp'] as num?)?.round();
+    final duration = (data['duration'] as num?)?.round();
+    if (timestamp == null) return;
+
+    final now = DateTime.now();
+    final timeDelta = now.difference(_lastSavedAt).inSeconds;
+    final seekDelta = (_lastSavedSeconds - timestamp).abs();
+    if (timeDelta < 10 && seekDelta < 15) return;
+
+    _lastSavedAt = now;
+    _lastSavedSeconds = timestamp;
+
+    final season = (data['season'] as num?)?.toInt();
+    final episode = (data['episode'] as num?)?.toInt();
+
+    historyStore.record(
+      tmdbId: widget.tmdbId!,
+      mediaType: widget.mediaType!,
+      seasonNumber: widget.mediaType == 'tv' ? season : null,
+      episodeNumber: widget.mediaType == 'tv' ? episode : null,
+      progressSeconds: timestamp,
+      durationSeconds: duration,
+      title: widget.title,
+      posterPath: widget.posterPath,
+      backdropPath: widget.backdropPath,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -89,7 +151,7 @@ class _MyWidgetState extends State<MyWidget> {
             InAppWebView(
               key: _webViewKey,
               initialUrlRequest: URLRequest(
-                url: WebUri("${_currentUrl}play=true"),
+                url: WebUri(_currentUrl),
               ),
               initialSettings: settings,
               initialUserScripts: UnmodifiableListView<UserScript>([
@@ -98,22 +160,51 @@ class _MyWidgetState extends State<MyWidget> {
                       "sessionStorage.setItem('ads-enabled-session', 'false');",
                   injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
                 ),
+                UserScript(
+                  source: r"""
+                    (function() {
+                      function forward(raw) {
+                        try {
+                          var data = typeof raw === 'string' ? JSON.parse(raw) : raw;
+                          if (data && typeof data === 'object' &&
+                              ('timestamp' in data || 'progress' in data)) {
+                            window.flutter_inappwebview.callHandler('progress', data);
+                          }
+                        } catch (e) { /* ignore */ }
+                      }
+                      window.addEventListener('message', function(e) {
+                        forward(e.data);
+                      }, false);
+                      var origPost = window.postMessage;
+                      window.postMessage = function(data) {
+                        try { forward(data); } catch (e) {}
+                        return origPost.apply(window, arguments);
+                      };
+                    })();
+                  """,
+                  injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+                ),
               ]),
               onWebViewCreated: (controller) {
-                _webViewController = controller;
+                controller.addJavaScriptHandler(
+                  handlerName: 'progress',
+                  callback: (args) {
+                    if (args.isNotEmpty && args.first is Map) {
+                      _handleProgress(Map<String, dynamic>.from(args.first));
+                    }
+                  },
+                );
               },
               shouldOverrideUrlLoading: (controller, navigationAction) async {
                 final uri = navigationAction.request.url;
                 if (uri == null) return NavigationActionPolicy.ALLOW;
 
-                // Lock navigation to the initial host
                 if (uri.host != _initialHost) {
                   debugPrint("Blocked cross-origin navigation: ${uri.host}");
                   return NavigationActionPolicy.CANCEL;
                 }
 
                 if (_isAdUrl(uri.toString())) {
-                  // Block navigation to known ad domains
                   debugPrint("Blocked ad URL: $uri");
                   if (await controller.canGoBack()) {
                     controller.goBack();
@@ -124,11 +215,9 @@ class _MyWidgetState extends State<MyWidget> {
                   }
                   return NavigationActionPolicy.CANCEL;
                 }
-                // Update current valid URL
                 _currentUrl = uri.toString();
                 return NavigationActionPolicy.ALLOW;
               },
-              // Optional: Intercept requests to block ad assets
               shouldInterceptRequest: (controller, request) async {
                 if (_isAdUrl(request.url.toString())) {
                   return WebResourceResponse();
@@ -148,7 +237,7 @@ class _MyWidgetState extends State<MyWidget> {
             ),
             if (_isLoading)
               const Center(
-                child: CircularProgressIndicator(color: Colors.blue),
+                child: CircularProgressIndicator(color: Color(0xFFE50914)),
               ),
           ],
         ),

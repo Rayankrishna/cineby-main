@@ -1,6 +1,8 @@
 import 'package:app_web_ui/models/tv_detail_model.dart';
 import 'package:app_web_ui/services/config.dart';
+import 'package:app_web_ui/services/page_transitions.dart';
 import 'package:app_web_ui/services/pages/webview.dart';
+import 'package:app_web_ui/services/responsive.dart';
 import 'package:app_web_ui/stores/history_store.dart';
 import 'package:app_web_ui/stores/tv_detail_store.dart';
 import 'package:app_web_ui/stores/watchlist_store.dart';
@@ -19,6 +21,7 @@ class TvDetailPage extends StatefulWidget {
 class _TvDetailPageState extends State<TvDetailPage> {
   final TvDetailStore _store = TvDetailStore();
   HistoryItem? _lastWatched;
+  bool _lastWatchedLoaded = false;
 
   @override
   void initState() {
@@ -30,7 +33,11 @@ class _TvDetailPageState extends State<TvDetailPage> {
 
   Future<void> _loadLastWatched() async {
     final item = await historyStore.latestForShow(widget.tvId);
-    if (mounted) setState(() => _lastWatched = item);
+    if (!mounted) return;
+    setState(() {
+      _lastWatched = item;
+      _lastWatchedLoaded = true;
+    });
   }
 
   String _formatYear(String? date) {
@@ -56,7 +63,16 @@ class _TvDetailPageState extends State<TvDetailPage> {
         '?episodeSelector=true&nextEpisode=true&autoplayNextEpisode=true$progressParam';
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => MyWidget(url: url)),
+      MaterialPageRoute(
+        builder: (_) => MyWidget(
+          url: url,
+          tmdbId: widget.tvId,
+          mediaType: 'tv',
+          title: tv?.name,
+          posterPath: tv?.posterPath,
+          backdropPath: tv?.backdropPath,
+        ),
+      ),
     ).then((_) => _loadLastWatched());
   }
 
@@ -187,7 +203,10 @@ class _TvDetailPageState extends State<TvDetailPage> {
   }
 
   Widget _buildBody(TvDetail tv) {
-    return Padding(
+    return FadeInUp(
+      duration: const Duration(milliseconds: 380),
+      offset: 20,
+      child: CenteredMaxWidth(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -230,7 +249,15 @@ class _TvDetailPageState extends State<TvDetailPage> {
           const SizedBox(height: 16),
           SizedBox(
             width: double.infinity,
-            child: ElevatedButton.icon(
+            height: 52,
+            child: !_lastWatchedLoaded
+                ? Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white12,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                  )
+                : ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.white,
                 foregroundColor: Colors.black,
@@ -275,6 +302,23 @@ class _TvDetailPageState extends State<TvDetailPage> {
               },
             ),
           ),
+          if (_lastWatched != null &&
+              _lastWatched!.durationSeconds != null &&
+              _lastWatched!.durationSeconds! > 0) ...[
+            const SizedBox(height: 8),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(2),
+              child: LinearProgressIndicator(
+                value: (_lastWatched!.progressSeconds /
+                        _lastWatched!.durationSeconds!)
+                    .clamp(0.0, 1.0),
+                minHeight: 3,
+                backgroundColor: Colors.white12,
+                valueColor:
+                    const AlwaysStoppedAnimation(Color(0xFFE50914)),
+              ),
+            ),
+          ],
           const SizedBox(height: 16),
           if (tv.tagline != null && tv.tagline!.isNotEmpty) ...[
             Text(
@@ -345,11 +389,12 @@ class _TvDetailPageState extends State<TvDetailPage> {
           ],
         ],
       ),
+      ),
     );
   }
 
   Widget _buildSeasonPicker(TvDetail tv) {
-    return Padding(
+    return CenteredMaxWidth(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
       child: Row(
         children: [
@@ -433,19 +478,19 @@ class _TvDetailPageState extends State<TvDetailPage> {
       );
     }
 
-    return SliverPadding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      sliver: SliverList.separated(
-        itemCount: season.episodes.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 12),
-        itemBuilder: (context, index) {
-          final ep = season.episodes[index];
-          return _EpisodeTile(
+    return SliverList.separated(
+      itemCount: season.episodes.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 12),
+      itemBuilder: (context, index) {
+        final ep = season.episodes[index];
+        return CenteredMaxWidth(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: _EpisodeTile(
             episode: ep,
             onTap: () => _playEpisode(ep.seasonNumber, ep.episodeNumber),
-          );
-        },
-      ),
+          ),
+        );
+      },
     );
   }
 }

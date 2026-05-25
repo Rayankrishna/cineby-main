@@ -1,11 +1,18 @@
+import 'package:app_web_ui/services/page_transitions.dart';
 import 'package:app_web_ui/services/pages/home.dart';
 import 'package:app_web_ui/services/pages/login_page.dart';
 import 'package:app_web_ui/stores/auth_store.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.portraitDown,
+  ]);
   await authStore.bootstrap();
   runApp(const MyApp());
 }
@@ -28,22 +35,23 @@ class MyApp extends StatelessWidget {
         surface: surface,
       ).copyWith(surface: surface),
       scaffoldBackgroundColor: background,
-      fontFamily: 'Inter',
+      pageTransitionsTheme: pageTransitions,
     );
+
+    final textTheme = GoogleFonts.interTextTheme(
+      base.textTheme,
+    ).apply(bodyColor: Colors.white, displayColor: Colors.white);
 
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Reelix',
-      theme: base.copyWith(
-        textTheme: base.textTheme.apply(
-          bodyColor: Colors.white,
-          displayColor: Colors.white,
-        ),
-      ),
+      theme: base.copyWith(textTheme: textTheme),
       home: Observer(
-        builder: (_) => authStore.isAuthenticated
-            ? const MyHomePage(title: 'Reelix')
-            : const LoginPage(),
+        builder:
+            (_) =>
+                authStore.isAuthenticated
+                    ? const MyHomePage(title: 'Reelix')
+                    : const LoginPage(),
       ),
     );
   }

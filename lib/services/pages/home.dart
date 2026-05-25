@@ -1,6 +1,9 @@
+import 'package:app_web_ui/services/page_transitions.dart';
 import 'package:app_web_ui/services/pages/library_page.dart';
 import 'package:app_web_ui/services/pages/movie_detail_page.dart';
 import 'package:app_web_ui/services/pages/tv_detail_page.dart';
+import 'package:app_web_ui/services/responsive.dart';
+import 'package:app_web_ui/shared/squeeze_button.dart';
 
 import 'package:app_web_ui/stores/search_store.dart';
 import 'package:flutter/material.dart';
@@ -37,143 +40,158 @@ class _MyHomePageState extends State<MyHomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: SafeArea(
-        child: Column(
-          children: [
-            _buildHeader(),
-            _buildSearchBar(),
-            Expanded(
-              child: Observer(
-                builder: (_) {
-                  if (_searchStore.isLoading &&
-                      _searchStore.searchResults.isEmpty &&
-                      _searchStore.trendingResults.isEmpty) {
-                    return const Center(
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2.5,
-                        color: Color(0xFFE50914),
-                      ),
-                    );
-                  }
+        child: CenteredMaxWidth(
+          child: Column(
+            children: [
+              _buildHeader(),
+              _buildSearchBar(),
+              Expanded(
+                child: Observer(
+                  builder: (_) {
+                    if (_searchStore.isLoading &&
+                        _searchStore.searchResults.isEmpty &&
+                        _searchStore.trendingResults.isEmpty) {
+                      return const Center(
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.5,
+                          color: Color(0xFFE50914),
+                        ),
+                      );
+                    }
 
-                  if (_searchStore.errorMessage != null) {
-                    return Center(
-                      child: Text(
-                        _searchStore.errorMessage!,
-                        style: const TextStyle(color: Colors.white70),
-                      ),
-                    );
-                  }
+                    if (_searchStore.errorMessage != null) {
+                      return Center(
+                        child: Text(
+                          _searchStore.errorMessage!,
+                          style: const TextStyle(color: Colors.white70),
+                        ),
+                      );
+                    }
 
-                  final isSearching = _searchStore.searchQuery.isNotEmpty;
-                  final results =
-                      isSearching
-                          ? _searchStore.searchResults
-                          : _searchStore.trendingResults;
+                    final isSearching = _searchStore.searchQuery.isNotEmpty;
+                    final results =
+                        isSearching
+                            ? _searchStore.searchResults
+                            : _searchStore.trendingResults;
 
-                  if (results.isEmpty) {
-                    return const Center(
-                      child: Text(
-                        "No results found",
-                        style: TextStyle(color: Colors.white54, fontSize: 15),
-                      ),
-                    );
-                  }
+                    if (results.isEmpty) {
+                      return const Center(
+                        child: Text(
+                          "No results found",
+                          style: TextStyle(color: Colors.white54, fontSize: 15),
+                        ),
+                      );
+                    }
 
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 12, 20, 14),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              isSearching ? "Results" : "Trending Today",
-                              style: const TextStyle(
-                                fontSize: 22,
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: -0.5,
-                                color: Colors.white,
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 12, 20, 14),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                isSearching ? "Results" : "Trending Today",
+                                style: const TextStyle(
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: -0.5,
+                                  color: Colors.white,
+                                ),
                               ),
-                            ),
-                            if (!isSearching)
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 4,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: const Color(
-                                    0xFFE50914,
-                                  ).withValues(alpha: 0.15),
-                                  borderRadius: BorderRadius.circular(20),
-                                ),
-                                child: const Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(
-                                      Icons.local_fire_department_rounded,
-                                      size: 14,
-                                      color: Color(0xFFE50914),
-                                    ),
-                                    SizedBox(width: 4),
-                                    Text(
-                                      "HOT",
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w700,
-                                        letterSpacing: 1.0,
+                              if (!isSearching)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: const Color(
+                                      0xFFE50914,
+                                    ).withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(20),
+                                  ),
+                                  child: const Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        Icons.local_fire_department_rounded,
+                                        size: 14,
                                         color: Color(0xFFE50914),
                                       ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                      Expanded(
-                        child: GridView.builder(
-                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                          gridDelegate:
-                              const SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: 3,
-                                childAspectRatio: 0.58,
-                                crossAxisSpacing: 12,
-                                mainAxisSpacing: 18,
-                              ),
-                          itemCount: results.length,
-                          itemBuilder: (context, index) {
-                            final result = results[index];
-                            final isTv = result.mediaType == 'tv' ||
-                                (result.mediaType == null &&
-                                    result.title == null &&
-                                    result.name != null);
-                            return _PosterCard(
-                              posterPath: result.posterPath,
-                              title: result.title ?? result.name ?? 'Unknown',
-                              onTap: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) => isTv
-                                        ? TvDetailPage(tvId: result.id)
-                                        : MovieDetailPage(
-                                            movieId: result.id,
-                                          ),
+                                      SizedBox(width: 4),
+                                      Text(
+                                        "HOT",
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w700,
+                                          letterSpacing: 1.0,
+                                          color: Color(0xFFE50914),
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                );
-                              },
-                            );
-                          },
+                                ),
+                            ],
+                          ),
                         ),
-                      ),
-                    ],
-                  );
-                },
+                        Expanded(
+                          child: GridView.builder(
+                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                            gridDelegate:
+                                SliverGridDelegateWithFixedCrossAxisCount(
+                                  crossAxisCount: posterGridColumns(
+                                    MediaQuery.of(context).size.width,
+                                  ),
+                                  childAspectRatio: 0.58,
+                                  crossAxisSpacing: 12,
+                                  mainAxisSpacing: 18,
+                                ),
+                            itemCount: results.length,
+                            itemBuilder: (context, index) {
+                              final result = results[index];
+                              final isTv =
+                                  result.mediaType == 'tv' ||
+                                  (result.mediaType == null &&
+                                      result.title == null &&
+                                      result.name != null);
+                              return FadeInUp(
+                                delay: Duration(
+                                  milliseconds: 30 * (index % 12),
+                                ),
+                                child: _PosterCard(
+                                  posterPath: result.posterPath,
+                                  title:
+                                      result.title ?? result.name ?? 'Unknown',
+                                  onTap: () {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder:
+                                            (context) =>
+                                                isTv
+                                                    ? TvDetailPage(
+                                                      tvId: result.id,
+                                                    )
+                                                    : MovieDetailPage(
+                                                      movieId: result.id,
+                                                    ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -187,21 +205,13 @@ class _MyHomePageState extends State<MyHomePage> {
         children: [
           Row(
             children: [
-              Container(
-                width: 32,
-                height: 32,
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFFE50914), Color(0xFFB8070F)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(9),
-                ),
-                child: const Icon(
-                  Icons.movie_filter_rounded,
-                  color: Colors.white,
-                  size: 20,
+              ClipRRect(
+                borderRadius: BorderRadius.circular(9),
+                child: Image.asset(
+                  'assets/reelix.jpeg',
+                  width: 32,
+                  height: 32,
+                  fit: BoxFit.cover,
                 ),
               ),
               const SizedBox(width: 10),
@@ -231,9 +241,7 @@ class _MyHomePageState extends State<MyHomePage> {
               onPressed: () {
                 Navigator.push(
                   context,
-                  MaterialPageRoute(
-                    builder: (_) => const LibraryPage(),
-                  ),
+                  MaterialPageRoute(builder: (_) => const LibraryPage()),
                 );
               },
             ),
@@ -320,7 +328,7 @@ class _PosterCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return SqueezeButton(
       onTap: onTap,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -379,16 +387,19 @@ class _PosterCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 8),
-          Text(
-            title,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: Colors.white,
-              height: 1.25,
-              letterSpacing: -0.1,
+          SizedBox(
+            height: 34,
+            child: Text(
+              title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
+                height: 1.25,
+                letterSpacing: -0.1,
+              ),
             ),
           ),
         ],
