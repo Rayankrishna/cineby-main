@@ -15,7 +15,7 @@ class _RootShellState extends State<RootShell> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF292830),
+      backgroundColor: const Color(0xFF18181A),
       body: Stack(
         children: [
           IndexedStack(

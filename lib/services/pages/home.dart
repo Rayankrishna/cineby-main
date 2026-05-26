@@ -100,7 +100,7 @@ class _MyHomePageState extends State<MyHomePage> {
           ClipRRect(
             borderRadius: BorderRadius.circular(9),
             child: Image.asset(
-              'assets/reelix.jpeg',
+              'assets/favicon.jpg',
               width: 32,
               height: 32,
               fit: BoxFit.cover,

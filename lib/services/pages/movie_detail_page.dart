@@ -55,7 +55,7 @@ class _MovieDetailPageState extends State<MovieDetailPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF292830),
+      backgroundColor: const Color(0xFF18181A),
       body: Observer(
         builder: (_) {
           if (_store.isLoading) {
@@ -128,7 +128,7 @@ class _MovieDetailPageState extends State<MovieDetailPage> {
                             end: Alignment.bottomCenter,
                             colors: [
                               Colors.transparent,
-                              Color(0xFF292830),
+                              Color(0xFF18181A),
                             ],
                             stops: [0.4, 1.0],
                           ),

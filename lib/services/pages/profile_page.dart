@@ -46,7 +46,7 @@ class _ProfilePageState extends State<ProfilePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF292830),
+      backgroundColor: const Color(0xFF18181A),
       body: Observer(
         builder: (_) {
           final inProgress = historyStore.items
@@ -145,7 +145,7 @@ class _ProfilePageState extends State<ProfilePage> {
                               color: const Color(0xFF1F1E26),
                               shape: BoxShape.circle,
                               border: Border.all(
-                                color: const Color(0xFF292830),
+                                color: const Color(0xFF18181A),
                                 width: 2,
                               ),
                             ),

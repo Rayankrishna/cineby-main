@@ -23,7 +23,7 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const background = Color(0xFF292830);
+    const background = Color(0xFF18181A);
     const surface = Color(0xFF35343E);
     const accent = Color(0xFFEF0003);
 
@@ -39,7 +39,7 @@ class MyApp extends StatelessWidget {
       pageTransitionsTheme: pageTransitions,
     );
 
-    final textTheme = GoogleFonts.interTextTheme(
+    final textTheme = GoogleFonts.manropeTextTheme(
       base.textTheme,
     ).apply(bodyColor: Colors.white, displayColor: Colors.white);
 

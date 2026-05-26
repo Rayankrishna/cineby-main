@@ -47,7 +47,7 @@ class _LibraryPageState extends State<LibraryPage>
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: const Color(0xFF292830),
+        backgroundColor: const Color(0xFF18181A),
         elevation: 0,
         title: const Text(
           'Library',

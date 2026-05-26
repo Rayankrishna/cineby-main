@@ -4,11 +4,12 @@ import 'package:flutter/material.dart';
 void showPlayerHintToast() {
   BotToast.showCustomNotification(
     duration: const Duration(seconds: 5),
-    align: const Alignment(0, -1),
+    align: const Alignment(0, 0.9),
     toastBuilder: (cancel) => SafeArea(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-        child: Center(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        child: Align(
+          alignment: Alignment.bottomCenter,
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 440),
             child: Material(

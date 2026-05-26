@@ -99,7 +99,7 @@ class _TvDetailPageState extends State<TvDetailPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF292830),
+      backgroundColor: const Color(0xFF18181A),
       body: Observer(
         builder: (_) {
           if (_store.isLoading && _store.tvDetail == null) {
@@ -182,7 +182,7 @@ class _TvDetailPageState extends State<TvDetailPage> {
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
-                colors: [Colors.transparent, Color(0xFF292830)],
+                colors: [Colors.transparent, Color(0xFF18181A)],
                 stops: [0.4, 1.0],
               ),
             ),

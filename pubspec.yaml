@@ -53,7 +53,6 @@ dependencies:
   flutter_inappwebview: ^6.0.0
   wakelock_plus: ^1.1.0
   path_provider: ^2.1.5
-  adblocker_webview: ^2.0.0
   google_fonts: ^6.2.1
 
 
@@ -69,6 +68,7 @@ dev_dependencies:
   # rules and activating additional ones.
   flutter_lints: ^5.0.0
   flutter_launcher_icons: ^0.13.1
+  flutter_native_splash: ^2.4.6
 
 flutter_launcher_icons:
   android: "launcher_icon"
@@ -78,6 +78,16 @@ flutter_launcher_icons:
   background_color_ios: "#292830"
   adaptive_icon_background: "#292830"
   adaptive_icon_foreground: "assets/favicon.jpg"
+
+flutter_native_splash:
+  color: "#292830"
+  image: assets/favicon.jpg
+  android_12:
+    image: assets/favicon.jpg
+    color: "#292830"
+  android: true
+  ios: true
+  fullscreen: false
 
 
 # For information on the generic Dart part of this file, see the

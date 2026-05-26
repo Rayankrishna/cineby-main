@@ -52,7 +52,7 @@ class _LoginPageState extends State<LoginPage> {
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(14),
                     child: Image.asset(
-                      'assets/reelix.jpeg',
+                      'assets/favicon.jpg',
                       width: 64,
                       height: 64,
                       fit: BoxFit.cover,
