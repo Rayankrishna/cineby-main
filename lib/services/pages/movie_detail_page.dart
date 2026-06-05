@@ -3,6 +3,7 @@ import 'package:app_web_ui/services/page_transitions.dart';
 import 'package:app_web_ui/services/pages/webview.dart';
 import 'package:app_web_ui/services/responsive.dart';
 import 'package:app_web_ui/services/toast.dart';
+import 'package:app_web_ui/shared/squeeze_button.dart';
 import 'package:app_web_ui/stores/history_store.dart';
 import 'package:app_web_ui/stores/movie_detail_store.dart';
 import 'package:app_web_ui/stores/watchlist_store.dart';
@@ -245,27 +246,8 @@ class _MovieDetailPageState extends State<MovieDetailPage> {
                                   borderRadius: BorderRadius.circular(6),
                                 ),
                               )
-                            : ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.white,
-                            foregroundColor: Colors.black,
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                          ),
-                          icon: Icon(
-                            _lastWatched != null
-                                ? Icons.play_circle_outline_rounded
-                                : Icons.play_arrow,
-                            size: 28,
-                          ),
-                          label: Text(
-                            _lastWatched != null ? 'Resume' : 'Play',
-                            style: const TextStyle(
-                                fontSize: 16, fontWeight: FontWeight.bold),
-                          ),
-                          onPressed: () {
+                            : SqueezeButton(
+                          onTap: () {
                             showPlayerHintToast();
                             final resumeSeconds =
                                 _lastWatched?.progressSeconds ?? 0;
@@ -302,6 +284,34 @@ class _MovieDetailPageState extends State<MovieDetailPage> {
                               ),
                             ).then((_) => _loadLastWatched());
                           },
+                          child: Container(
+                            height: 52,
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  _lastWatched != null
+                                      ? Icons.play_circle_outline_rounded
+                                      : Icons.play_arrow,
+                                  size: 28,
+                                  color: Colors.black,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  _lastWatched != null ? 'Resume' : 'Play',
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.black,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
                       ),
                       if (_lastWatched != null &&

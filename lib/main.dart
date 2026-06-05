@@ -10,10 +10,10 @@ import 'package:google_fonts/google_fonts.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-    DeviceOrientation.portraitDown,
-  ]);
+  // Allow free rotation — phones stay in their natural orientation, tablets
+  // and foldables can use landscape so the app fills the screen instead of
+  // being letterboxed with black bars on the sides.
+  await SystemChrome.setPreferredOrientations(DeviceOrientation.values);
   await authStore.bootstrap();
   runApp(const MyApp());
 }

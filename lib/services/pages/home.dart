@@ -492,7 +492,7 @@ class _RailPoster extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return SqueezeButton(
       onTap: onTap,
       child: SizedBox(
         width: 118,

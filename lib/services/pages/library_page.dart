@@ -2,6 +2,7 @@ import 'package:app_web_ui/services/page_transitions.dart';
 import 'package:app_web_ui/services/pages/movie_detail_page.dart';
 import 'package:app_web_ui/services/pages/tv_detail_page.dart';
 import 'package:app_web_ui/services/responsive.dart';
+import 'package:app_web_ui/shared/squeeze_button.dart';
 import 'package:app_web_ui/stores/auth_store.dart';
 import 'package:app_web_ui/stores/history_store.dart';
 import 'package:app_web_ui/stores/watchlist_store.dart';
@@ -177,9 +178,8 @@ class _LibraryPageState extends State<LibraryPage>
                 child: const Icon(Icons.delete_outline, color: Colors.white),
               ),
               onDismissed: (_) => historyStore.remove(item.id),
-              child: InkWell(
+              child: SqueezeButton(
                 onTap: () => _openDetail(item.tmdbId, item.mediaType),
-                borderRadius: BorderRadius.circular(12),
                 child: Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
@@ -279,7 +279,7 @@ class _PosterCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return SqueezeButton(
       onTap: onTap,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

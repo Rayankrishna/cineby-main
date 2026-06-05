@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:collection';
+import 'dart:io' show Platform;
 import 'package:app_web_ui/services/config.dart';
+import 'package:app_web_ui/services/pages/native_player.dart';
 import 'package:app_web_ui/stores/history_store.dart';
 
 import 'package:flutter/material.dart';
@@ -41,8 +43,6 @@ class MyWidget extends StatefulWidget {
 
 class _MyWidgetState extends State<MyWidget> {
   late String _currentUrl;
-  final Key _webViewKey = UniqueKey();
-  bool _isLoading = true;
 
   DateTime _lastSavedAt = DateTime.fromMillisecondsSinceEpoch(0);
   int _lastSavedSeconds = -1;
@@ -54,14 +54,28 @@ class _MyWidgetState extends State<MyWidget> {
   bool _gotPlayerEvent = false;
   int? _knownDuration;
 
-  final InAppWebViewSettings settings = InAppWebViewSettings(
+  final InAppWebViewSettings _wvSettings = InAppWebViewSettings(
     isInspectable: true,
     javaScriptEnabled: true,
     javaScriptCanOpenWindowsAutomatically: false,
     mediaPlaybackRequiresUserGesture: false,
     allowsInlineMediaPlayback: true,
     iframeAllowFullscreen: true,
+    useShouldInterceptRequest: true,
   );
+
+  // Headless webview — runs entirely off-screen so it doesn't fight the
+  // Flutter UI thread for frame budget. Without this the platform-view
+  // texture for a visible InAppWebView starves the loading spinner.
+  HeadlessInAppWebView? _headless;
+
+  // Captured stream info from the iframe.
+  String? _streamUrl;
+  String? _subtitleUrl;
+  final List<String> _subtitleUrls = []; // every .vtt/.srt URL seen
+  final Map<String, String> _streamHeaders = {};
+  bool _handedOff = false;
+  Timer? _handoffTimer;
 
   @override
   void initState() {
@@ -83,6 +97,151 @@ class _MyWidgetState extends State<MyWidget> {
       const Duration(seconds: 15),
       (_) => _saveElapsed(),
     );
+
+    _startHeadlessExtractor();
+  }
+
+  Future<void> _startHeadlessExtractor() async {
+    _headless = HeadlessInAppWebView(
+      initialUrlRequest: URLRequest(url: WebUri(_currentUrl)),
+      // Give the headless page a realistic viewport so elementFromPoint()
+      // in the auto-clicker resolves to actual elements rather than null.
+      initialSize: const Size(1280, 720),
+      initialSettings: _wvSettings,
+      initialUserScripts: UnmodifiableListView<UserScript>([
+        UserScript(
+          source:
+              "sessionStorage.setItem('ads-enabled-session', 'false');",
+          injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+        ),
+        UserScript(
+          source: r"""
+            (function() {
+              function forward(raw) {
+                try {
+                  var data = typeof raw === 'string' ? JSON.parse(raw) : raw;
+                  if (data && typeof data === 'object' &&
+                      ('timestamp' in data || 'progress' in data)) {
+                    window.flutter_inappwebview.callHandler('progress', data);
+                  }
+                } catch (e) {}
+              }
+              window.addEventListener('message', function(e) { forward(e.data); }, false);
+              var origPost = window.postMessage;
+              window.postMessage = function(data) {
+                try { forward(data); } catch (e) {}
+                return origPost.apply(window, arguments);
+              };
+            })();
+          """,
+          injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+        ),
+        // Aggressive auto-clicker. Same as before — synthesises a full
+        // pointer/mouse/click sequence at viewport centre + offsets, plus
+        // common play-button selectors, plus video.play().
+        UserScript(
+          source: r"""
+            (function() {
+              var attempts = 0;
+              var maxAttempts = 120;
+              var selectors = [
+                'button[aria-label*="play" i]',
+                'button[title*="play" i]',
+                '[role="button"][aria-label*="play" i]',
+                '[class*="play" i][class*="button" i]',
+                '[class*="bigPlay" i]',
+                '[class*="big-play" i]',
+                '[class*="playButton" i]',
+                '.plyr__control--overlaid',
+                '.vjs-big-play-button',
+                '.jw-display-icon-container',
+                '.jw-icon-display',
+                'svg[class*="play" i]',
+                'div[class*="play" i]'
+              ];
+              function fakeClick(el, x, y) {
+                if (!el) return;
+                try {
+                  ['pointerdown','mousedown','pointerup','mouseup','click'].forEach(function(type) {
+                    var ev;
+                    if (type.indexOf('pointer') === 0) {
+                      ev = new PointerEvent(type, {bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, pointerType: 'mouse'});
+                    } else {
+                      ev = new MouseEvent(type, {bubbles: true, cancelable: true, view: window, clientX: x, clientY: y, button: 0});
+                    }
+                    el.dispatchEvent(ev);
+                  });
+                  try { el.click(); } catch (e) {}
+                } catch (e) {}
+              }
+              function clickAt(x, y) {
+                var el = document.elementFromPoint(x, y);
+                fakeClick(el, x, y);
+              }
+              var timer = setInterval(function() {
+                attempts++;
+                if (attempts > maxAttempts) { clearInterval(timer); return; }
+                try {
+                  var cx = (window.innerWidth || document.documentElement.clientWidth) / 2;
+                  var cy = (window.innerHeight || document.documentElement.clientHeight) / 2;
+                  clickAt(cx, cy);
+                  clickAt(cx, cy - 40);
+                  clickAt(cx, cy + 40);
+                  clickAt(cx - 40, cy);
+                  clickAt(cx + 40, cy);
+                  for (var s = 0; s < selectors.length; s++) {
+                    var els = document.querySelectorAll(selectors[s]);
+                    for (var j = 0; j < els.length; j++) {
+                      try { els[j].click(); } catch (e) {}
+                    }
+                  }
+                  var videos = document.querySelectorAll('video');
+                  for (var i = 0; i < videos.length; i++) {
+                    var v = videos[i];
+                    try {
+                      var p = v.play();
+                      if (p && p.catch) p.catch(function() {
+                        try { v.muted = true; v.play(); } catch (e) {}
+                      });
+                    } catch (e) {}
+                  }
+                  for (var k = 0; k < videos.length; k++) {
+                    if (!videos[k].paused && videos[k].currentTime > 0) {
+                      clearInterval(timer);
+                      return;
+                    }
+                  }
+                } catch (e) {}
+              }, 500);
+            })();
+          """,
+          injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+          forMainFrameOnly: false,
+        ),
+      ]),
+      onWebViewCreated: (controller) {
+        controller.addJavaScriptHandler(
+          handlerName: 'progress',
+          callback: (args) {
+            if (args.isNotEmpty && args.first is Map) {
+              _handleProgress(Map<String, dynamic>.from(args.first));
+            }
+          },
+        );
+      },
+      shouldInterceptRequest: Platform.isAndroid
+          ? (controller, req) async {
+              try {
+                final url = req.url;
+                final headers = <String, String>{};
+                req.headers?.forEach((k, v) => headers[k] = v);
+                _captureRequest(Uri.parse(url.toString()), headers);
+              } catch (_) {}
+              return null;
+            }
+          : null,
+    );
+    await _headless!.run();
   }
 
 
@@ -90,17 +249,25 @@ class _MyWidgetState extends State<MyWidget> {
   @override
   void dispose() {
     _elapsedTimer?.cancel();
+    _handoffTimer?.cancel();
+    _headless?.dispose();
     // Final save when the user closes the player.
     _saveElapsed();
-    WakelockPlus.disable();
-    SystemChrome.setPreferredOrientations([
-      DeviceOrientation.portraitUp,
-      DeviceOrientation.portraitDown,
-    ]);
-    SystemChrome.setEnabledSystemUIMode(
-      SystemUiMode.manual,
-      overlays: SystemUiOverlay.values,
-    );
+    // Only restore portrait + system UI if the user backed out of the
+    // webview directly. If we handed off to the native player, leave its
+    // landscape + immersive setup alone — pushReplacement disposes this
+    // page AFTER the native player's initState runs, so any restore here
+    // would clobber the player.
+    if (!_handedOff) {
+      WakelockPlus.disable();
+      // Restore free rotation (matches the global default from main.dart),
+      // not portrait-only — so tablets keep landscape after closing the player.
+      SystemChrome.setPreferredOrientations(DeviceOrientation.values);
+      SystemChrome.setEnabledSystemUIMode(
+        SystemUiMode.manual,
+        overlays: SystemUiOverlay.values,
+      );
+    }
     super.dispose();
   }
 
@@ -131,6 +298,93 @@ class _MyWidgetState extends State<MyWidget> {
   }
 
 
+
+  // Intercepted from the iframe's HTTP requests. We watch for HLS/MP4
+  // playlists and WebVTT subtitle files, plus the headers (especially
+  // Referer/Origin) the underlying stream expects.
+  void _captureRequest(Uri uri, Map<String, String> headers) {
+    final fullLower = uri.toString().toLowerCase();
+    final isVideo = fullLower.contains('.m3u8') ||
+        fullLower.contains('.mp4') ||
+        fullLower.contains('.mpd') ||
+        fullLower.contains('/manifest') ||
+        fullLower.contains('/playlist') ||
+        fullLower.contains('master.txt');
+    // Skip HLS segments (.ts) — we want the manifest, not chunks.
+    final isSegment = fullLower.contains('.ts?') ||
+        fullLower.endsWith('.ts') ||
+        fullLower.contains('.m4s');
+    final isSubtitle = fullLower.contains('.vtt') ||
+        fullLower.contains('.srt') ||
+        fullLower.contains('/subtitle') ||
+        fullLower.contains('/caption');
+    if ((!isVideo || isSegment) && !isSubtitle) return;
+
+    // For HLS, segment URLs (.ts) and variant playlists also show up; prefer
+    // the first .m3u8 we see — usually the master — and ignore subsequent ones.
+    if (isVideo && !isSegment && _streamUrl == null) {
+      _streamUrl = uri.toString();
+      _streamHeaders.clear();
+      headers.forEach((k, v) {
+        final lk = k.toLowerCase();
+        if (lk == 'referer' || lk == 'origin' || lk == 'user-agent' ||
+            lk == 'cookie' || lk.startsWith('sec-')) {
+          _streamHeaders[k] = v;
+        }
+      });
+      // Fall back to the iframe origin as Referer if not set.
+      _streamHeaders.putIfAbsent(
+        'Referer',
+        () => '${uri.scheme}://${uri.host}/',
+      );
+      // Give subtitles a brief moment to also be captured before handing off.
+      _handoffTimer?.cancel();
+      _handoffTimer = Timer(const Duration(milliseconds: 1200), _openNativePlayer);
+      if (mounted) setState(() {});
+    }
+    if (isSubtitle) {
+      final s = uri.toString();
+      if (!_subtitleUrls.contains(s)) {
+        _subtitleUrls.add(s);
+        _subtitleUrl ??= s; // first one becomes the default
+        if (mounted) setState(() {});
+      }
+    }
+  }
+
+  void _openNativePlayer() {
+    if (!mounted) return;
+    final url = _streamUrl;
+    if (url == null || _handedOff) return;
+    _handedOff = true;
+    // Zero-duration transition. The default MaterialPageRoute slide-up
+    // animates both old + new pages live for ~300ms, which contends with
+    // the video controller's initialize() on the main thread and makes
+    // the loading spinner look janky. Snapping instantly avoids that.
+    Navigator.of(context).pushReplacement(
+      PageRouteBuilder(
+        transitionDuration: Duration.zero,
+        reverseTransitionDuration: const Duration(milliseconds: 150),
+        pageBuilder: (_, __, ___) => NativePlayerPage(
+          videoUrl: url,
+          httpHeaders: Map<String, String>.from(_streamHeaders),
+          subtitleUrl: _subtitleUrl,
+          subtitleUrls: List<String>.from(_subtitleUrls),
+          sourceUrl: _currentUrl,
+          title: widget.title,
+          tmdbId: widget.tmdbId,
+          mediaType: widget.mediaType,
+          seasonNumber: widget.seasonNumber,
+          episodeNumber: widget.episodeNumber,
+          initialProgressSeconds: _lastSavedSeconds >= 0
+              ? _lastSavedSeconds
+              : widget.initialProgressSeconds,
+          posterPath: widget.posterPath,
+          backdropPath: widget.backdropPath,
+        ),
+      ),
+    );
+  }
 
   // Save progress at most every 10s OR when the playback position jumps >15s.
   Future<void> _handleProgress(Map<String, dynamic> data) async {
@@ -169,73 +423,35 @@ class _MyWidgetState extends State<MyWidget> {
 
   @override
   Widget build(BuildContext context) {
+    // No platform view in the tree — the headless extractor runs in the
+    // background. This keeps the Flutter UI thread free so the loading
+    // indicator animates smoothly.
     return Scaffold(
       backgroundColor: Colors.black,
       body: SafeArea(
-        child: Stack(
-          children: [
-            InAppWebView(
-              key: _webViewKey,
-              initialUrlRequest: URLRequest(url: WebUri(_currentUrl)),
-              initialSettings: settings,
-              initialUserScripts: UnmodifiableListView<UserScript>([
-                UserScript(
-                  source:
-                      "sessionStorage.setItem('ads-enabled-session', 'false');",
-                  injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+        child: Center(
+          child: RepaintBoundary(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(
+                  width: 32,
+                  height: 32,
+                  child: CircularProgressIndicator(
+                    color: Color(0xFFEF0003),
+                    strokeWidth: 2.5,
+                  ),
                 ),
-                UserScript(
-                  source: r"""
-                    (function() {
-                      function forward(raw) {
-                        try {
-                          var data = typeof raw === 'string' ? JSON.parse(raw) : raw;
-                          if (data && typeof data === 'object' &&
-                              ('timestamp' in data || 'progress' in data)) {
-                            window.flutter_inappwebview.callHandler('progress', data);
-                          }
-                        } catch (e) { /* ignore */ }
-                      }
-                      window.addEventListener('message', function(e) {
-                        forward(e.data);
-                      }, false);
-                      var origPost = window.postMessage;
-                      window.postMessage = function(data) {
-                        try { forward(data); } catch (e) {}
-                        return origPost.apply(window, arguments);
-                      };
-                    })();
-                  """,
-                  injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+                const SizedBox(height: 16),
+                Text(
+                  _streamUrl == null
+                      ? 'Loading stream…'
+                      : 'Preparing player…',
+                  style: const TextStyle(color: Colors.white70),
                 ),
-              ]),
-              onWebViewCreated: (controller) {
-                controller.addJavaScriptHandler(
-                  handlerName: 'progress',
-                  callback: (args) {
-                    if (args.isNotEmpty && args.first is Map) {
-                      _handleProgress(Map<String, dynamic>.from(args.first));
-                    }
-                  },
-                );
-              },
-
-              onLoadStart: (controller, url) {
-                setState(() {
-                  _isLoading = true;
-                });
-              },
-              onLoadStop: (controller, url) {
-                setState(() {
-                  _isLoading = false;
-                });
-              },
+              ],
             ),
-            if (_isLoading)
-              const Center(
-                child: CircularProgressIndicator(color: Color(0xFFEF0003)),
-              ),
-          ],
+          ),
         ),
       ),
     );

@@ -3,6 +3,7 @@ import 'package:app_web_ui/services/pages/avatar_picker.dart';
 import 'package:app_web_ui/services/pages/movie_detail_page.dart';
 import 'package:app_web_ui/services/pages/tv_detail_page.dart';
 import 'package:app_web_ui/services/responsive.dart';
+import 'package:app_web_ui/shared/squeeze_button.dart';
 import 'package:app_web_ui/stores/auth_store.dart';
 import 'package:app_web_ui/stores/history_store.dart';
 import 'package:app_web_ui/stores/watchlist_store.dart';
@@ -278,7 +279,7 @@ class _ProfilePageState extends State<ProfilePage> {
               : 0.0;
           return FadeInUp(
             delay: Duration(milliseconds: 30 * i),
-            child: GestureDetector(
+            child: SqueezeButton(
               onTap: () => _openDetail(item.tmdbId, item.mediaType),
               child: SizedBox(
                 width: 142,
@@ -386,7 +387,7 @@ class _ProfilePageState extends State<ProfilePage> {
               final item = items[index];
               return FadeInUp(
                 delay: Duration(milliseconds: 30 * (index % 12)),
-                child: GestureDetector(
+                child: SqueezeButton(
                   onTap: () => _openDetail(item.tmdbId, item.mediaType),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -472,9 +473,8 @@ class _ProfilePageState extends State<ProfilePage> {
                 child: const Icon(Icons.delete_outline, color: Colors.white),
               ),
               onDismissed: (_) => historyStore.remove(item.id),
-              child: InkWell(
+              child: SqueezeButton(
                 onTap: () => _openDetail(item.tmdbId, item.mediaType),
-                borderRadius: BorderRadius.circular(14),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(vertical: 6),
                   child: Row(

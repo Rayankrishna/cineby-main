@@ -4,6 +4,7 @@ import 'package:app_web_ui/services/page_transitions.dart';
 import 'package:app_web_ui/services/pages/webview.dart';
 import 'package:app_web_ui/services/responsive.dart';
 import 'package:app_web_ui/services/toast.dart';
+import 'package:app_web_ui/shared/squeeze_button.dart';
 import 'package:app_web_ui/stores/history_store.dart';
 import 'package:app_web_ui/stores/tv_detail_store.dart';
 import 'package:app_web_ui/stores/watchlist_store.dart';
@@ -277,36 +278,8 @@ class _TvDetailPageState extends State<TvDetailPage> {
                       borderRadius: BorderRadius.circular(6),
                     ),
                   )
-                : ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.white,
-                foregroundColor: Colors.black,
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(6),
-                ),
-              ),
-              icon: Icon(
-                _lastWatched != null
-                    ? Icons.play_circle_outline_rounded
-                    : Icons.play_arrow,
-                size: 28,
-              ),
-              label: Text(
-                _lastWatched != null
-                    ? 'Resume S${_lastWatched!.seasonNumber} · E${_lastWatched!.episodeNumber}'
-                    : (() {
-                        final s = tv.seasons.isNotEmpty
-                            ? tv.seasons.first.seasonNumber
-                            : 1;
-                        return 'Play S$s · E1';
-                      })(),
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              onPressed: () {
+                : SqueezeButton(
+              onTap: () {
                 if (_lastWatched != null) {
                   _playEpisode(
                     _lastWatched!.seasonNumber ?? 1,
@@ -320,6 +293,41 @@ class _TvDetailPageState extends State<TvDetailPage> {
                   _playEpisode(firstSeason, 1);
                 }
               },
+              child: Container(
+                height: 52,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      _lastWatched != null
+                          ? Icons.play_circle_outline_rounded
+                          : Icons.play_arrow,
+                      size: 28,
+                      color: Colors.black,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      _lastWatched != null
+                          ? 'Resume S${_lastWatched!.seasonNumber} · E${_lastWatched!.episodeNumber}'
+                          : (() {
+                              final s = tv.seasons.isNotEmpty
+                                  ? tv.seasons.first.seasonNumber
+                                  : 1;
+                              return 'Play S$s · E1';
+                            })(),
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
           if (_lastWatched != null &&
@@ -523,9 +531,8 @@ class _EpisodeTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
+    return SqueezeButton(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
       child: Container(
         decoration: BoxDecoration(
           color: const Color(0xFF35343E),

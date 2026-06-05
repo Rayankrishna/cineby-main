@@ -1,3 +1,4 @@
+import 'package:app_web_ui/shared/squeeze_button.dart';
 import 'package:app_web_ui/stores/auth_store.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -170,7 +171,7 @@ class _AvatarPickerSheetState extends State<AvatarPickerSheet> {
       itemBuilder: (context, index) {
         final c = _choices[index];
         final isSelected = selected == c.path;
-        return GestureDetector(
+        return SqueezeButton(
           onTap: () async {
             await authStore.setAvatarPath(c.path);
             if (mounted) Navigator.pop(context);

@@ -1,3 +1,4 @@
+import 'package:app_web_ui/shared/squeeze_button.dart';
 import 'package:app_web_ui/stores/auth_store.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
@@ -103,31 +104,36 @@ class _LoginPageState extends State<LoginPage> {
                   return const SizedBox.shrink();
                 }),
                 Observer(builder: (_) {
-                  return SizedBox(
-                    height: 50,
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFEF0003),
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
+                  final loading = authStore.isLoading;
+                  return Opacity(
+                    opacity: loading ? 0.6 : 1.0,
+                    child: SqueezeButton(
+                      onTap: loading ? null : _submit,
+                      child: Container(
+                        height: 50,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEF0003),
                           borderRadius: BorderRadius.circular(12),
                         ),
-                      ),
-                      onPressed: authStore.isLoading ? null : _submit,
-                      child: authStore.isLoading
-                          ? const SizedBox(
-                              width: 22,
-                              height: 22,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2.4,
-                                color: Colors.white,
+                        alignment: Alignment.center,
+                        child: loading
+                            ? const SizedBox(
+                                width: 22,
+                                height: 22,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2.4,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : Text(
+                                _isRegister ? 'Sign up' : 'Sign in',
+                                style: const TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.white,
+                                ),
                               ),
-                            )
-                          : Text(
-                              _isRegister ? 'Sign up' : 'Sign in',
-                              style: const TextStyle(
-                                  fontSize: 15, fontWeight: FontWeight.w600),
-                            ),
+                      ),
                     ),
                   );
                 }),

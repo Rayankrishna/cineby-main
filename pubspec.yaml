@@ -54,6 +54,7 @@ dependencies:
   wakelock_plus: ^1.1.0
   path_provider: ^2.1.5
   google_fonts: ^6.2.1
+  video_player: ^2.9.2
 
 
 
