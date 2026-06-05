@@ -24,39 +24,47 @@ router.post('/', async (req, res, next) => {
         ? data.progressSeconds / data.durationSeconds >= COMPLETED_RATIO
         : false;
 
-    const item = await prisma.watchHistoryItem.upsert({
+    // Prisma's compound-unique `upsert` cannot accept `null` for any field
+    // in the key — and movies always have `seasonNumber = null` and
+    // `episodeNumber = null`. Use findFirst + update/create instead.
+    const existing = await prisma.watchHistoryItem.findFirst({
       where: {
-        userId_tmdbId_mediaType_seasonNumber_episodeNumber: {
-          userId,
-          tmdbId: data.tmdbId,
-          mediaType: data.mediaType,
-          seasonNumber: season as any,
-          episodeNumber: episode as any,
-        },
-      },
-      create: {
         userId,
         tmdbId: data.tmdbId,
         mediaType: data.mediaType,
         seasonNumber: season,
         episodeNumber: episode,
-        progressSeconds: data.progressSeconds,
-        durationSeconds: data.durationSeconds,
-        completed,
-        title: data.title,
-        posterPath: data.posterPath,
-        backdropPath: data.backdropPath,
-      },
-      update: {
-        progressSeconds: data.progressSeconds,
-        durationSeconds: data.durationSeconds,
-        completed,
-        title: data.title,
-        posterPath: data.posterPath,
-        backdropPath: data.backdropPath,
-        watchedAt: new Date(),
       },
     });
+
+    const item = existing
+      ? await prisma.watchHistoryItem.update({
+          where: { id: existing.id },
+          data: {
+            progressSeconds: data.progressSeconds,
+            durationSeconds: data.durationSeconds,
+            completed,
+            title: data.title,
+            posterPath: data.posterPath,
+            backdropPath: data.backdropPath,
+            watchedAt: new Date(),
+          },
+        })
+      : await prisma.watchHistoryItem.create({
+          data: {
+            userId,
+            tmdbId: data.tmdbId,
+            mediaType: data.mediaType,
+            seasonNumber: season,
+            episodeNumber: episode,
+            progressSeconds: data.progressSeconds,
+            durationSeconds: data.durationSeconds,
+            completed,
+            title: data.title,
+            posterPath: data.posterPath,
+            backdropPath: data.backdropPath,
+          },
+        });
 
     res.status(200).json(item);
   } catch (e) {
@@ -129,15 +137,15 @@ router.get('/:tmdbId', async (req, res, next) => {
 
     const season = q.mediaType === 'tv' ? q.season ?? 0 : null;
     const episode = q.mediaType === 'tv' ? q.episode ?? 0 : null;
-    const item = await prisma.watchHistoryItem.findUnique({
+    // Same reason as the POST handler — findUnique on the compound key
+    // refuses null fields. findFirst handles nullable values correctly.
+    const item = await prisma.watchHistoryItem.findFirst({
       where: {
-        userId_tmdbId_mediaType_seasonNumber_episodeNumber: {
-          userId,
-          tmdbId,
-          mediaType: q.mediaType,
-          seasonNumber: season as any,
-          episodeNumber: episode as any,
-        },
+        userId,
+        tmdbId,
+        mediaType: q.mediaType,
+        seasonNumber: season,
+        episodeNumber: episode,
       },
     });
     res.json({ item });

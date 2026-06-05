@@ -50,8 +50,13 @@ class _ProfilePageState extends State<ProfilePage> {
       backgroundColor: const Color(0xFF18181A),
       body: Observer(
         builder: (_) {
+          // Anything the user has tapped Play on and not finished counts as
+          // "in progress". Previously this gated on progressSeconds > 30,
+          // which meant freshly-played movies (initial record at 0s) only
+          // appeared after the native player's first 30s+ tick — and not at
+          // all if extraction failed or the user backed out early.
           final inProgress = historyStore.items
-              .where((h) => !h.completed && h.progressSeconds > 30)
+              .where((h) => !h.completed)
               .toList();
 
           return CustomScrollView(

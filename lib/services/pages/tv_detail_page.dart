@@ -94,7 +94,10 @@ class _TvDetailPageState extends State<TvDetailPage> {
           backdropPath: tv?.backdropPath,
         ),
       ),
-    ).then((_) => _loadLastWatched());
+    ).then((_) {
+      _loadLastWatched();
+      historyStore.fetch();
+    });
   }
 
   @override

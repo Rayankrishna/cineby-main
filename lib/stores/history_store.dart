@@ -141,6 +141,43 @@ abstract class _HistoryStore with Store {
     String? posterPath,
     String? backdropPath,
   }) async {
+    // Optimistic local upsert. Without this the home / profile / library
+    // lists don't reflect new progress until the user manually refreshes,
+    // because they only call fetch() once in initState. The server POST
+    // below is fire-and-forget; on next fetch() the local placeholder id
+    // gets replaced with the real server id.
+    final now = DateTime.now();
+    final idx = items.indexWhere((i) =>
+        i.tmdbId == tmdbId &&
+        i.mediaType == mediaType &&
+        i.seasonNumber == seasonNumber &&
+        i.episodeNumber == episodeNumber);
+    final existing = idx >= 0 ? items[idx] : null;
+    final effectiveDuration = durationSeconds ?? existing?.durationSeconds;
+    final completed = effectiveDuration != null &&
+        effectiveDuration > 0 &&
+        progressSeconds / effectiveDuration >= 0.9;
+    final updated = HistoryItem(
+      id: existing?.id ?? 'local-${now.millisecondsSinceEpoch}-$tmdbId',
+      tmdbId: tmdbId,
+      mediaType: mediaType,
+      seasonNumber: seasonNumber,
+      episodeNumber: episodeNumber,
+      progressSeconds: progressSeconds,
+      durationSeconds: effectiveDuration,
+      completed: completed,
+      title: title ?? existing?.title,
+      posterPath: posterPath ?? existing?.posterPath,
+      backdropPath: backdropPath ?? existing?.backdropPath,
+      watchedAt: existing?.watchedAt ?? now,
+      updatedAt: now,
+    );
+    if (existing != null) {
+      items[idx] = updated;
+    } else {
+      items.insert(0, updated);
+    }
+
     try {
       await _api.dio.post('/history', data: {
         'tmdbId': tmdbId,

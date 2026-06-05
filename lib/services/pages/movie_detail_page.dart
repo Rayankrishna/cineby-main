@@ -282,7 +282,16 @@ class _MovieDetailPageState extends State<MovieDetailPage> {
                                   backdropPath: movie.backdropPath,
                                 ),
                               ),
-                            ).then((_) => _loadLastWatched());
+                            ).then((_) {
+                              _loadLastWatched();
+                              // Re-pull the full history list so Continue
+                              // Watching on home / profile / library reflects
+                              // the new entry — covers the case where the
+                              // optimistic local upsert missed (e.g. server
+                              // returned the item with different season/
+                              // episode null-ness than what we inserted).
+                              historyStore.fetch();
+                            });
                           },
                           child: Container(
                             height: 52,
