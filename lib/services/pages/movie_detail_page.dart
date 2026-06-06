@@ -24,7 +24,87 @@ class _MovieDetailPageState extends State<MovieDetailPage> {
   final MovieDetailStore _store = MovieDetailStore();
   HistoryItem? _lastWatched;
   bool _lastWatchedLoaded = false;
-  bool _checkingSource = false;
+  // User-selected stream provider. Defaults to the first entry in
+  // [streamServers] (currently 111Movies). Tapping the source pill below
+  // the Play button updates this and the next Play uses the chosen one.
+  StreamServer _selectedServer = streamServers.first;
+
+  void _showSourcePicker() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF1F1E26),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(20, 12, 20, 8),
+                child: Row(
+                  children: [
+                    Icon(Icons.dns_rounded,
+                        color: Color(0xFFEF0003), size: 22),
+                    SizedBox(width: 10),
+                    Text('Choose source',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                        )),
+                  ],
+                ),
+              ),
+              for (final s in streamServers)
+                InkWell(
+                  onTap: () {
+                    Navigator.of(ctx).pop();
+                    setState(() => _selectedServer = s);
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20, vertical: 12),
+                    child: Row(
+                      children: [
+                        Icon(Icons.play_circle_outline_rounded,
+                            color: s == _selectedServer
+                                ? const Color(0xFFEF0003)
+                                : Colors.white70,
+                            size: 20),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Text(
+                            s.name,
+                            style: TextStyle(
+                              color: s == _selectedServer
+                                  ? const Color(0xFFEF0003)
+                                  : Colors.white,
+                              fontSize: 14.5,
+                              fontWeight: s == _selectedServer
+                                  ? FontWeight.w600
+                                  : FontWeight.w400,
+                            ),
+                          ),
+                        ),
+                        if (s == _selectedServer)
+                          const Icon(Icons.check_rounded,
+                              color: Color(0xFFEF0003), size: 18),
+                      ],
+                    ),
+                  ),
+                ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   void initState() {
@@ -43,43 +123,25 @@ class _MovieDetailPageState extends State<MovieDetailPage> {
     });
   }
 
-  Future<void> _startDownload(dynamic movie) async {
-    // Probe for a reachable source first, then push the webview in
-    // downloadMode — extraction completes, the download kicks off in the
-    // background, and the route pops back to this page.
-    final server = await findReachableServer(
+  void _startDownload(dynamic movie) {
+    // Fire-and-forget. The DownloadStore runs extraction + the actual
+    // download on its own — backing out of the detail page mid-flight no
+    // longer cancels anything. The Downloads tab shows the placeholder
+    // "Extracting…" state until the stream URL is captured.
+    final embedUrl =
+        _selectedServer.buildUrl(widget.movieId, 'movie', null, null);
+    downloadStore.startWithExtraction(
+      embedUrl: embedUrl,
       tmdbId: widget.movieId,
       mediaType: 'movie',
+      title: movie.title,
+      posterPath: movie.posterPath,
+      backdropPath: movie.backdropPath,
     );
-    if (!mounted) return;
-    if (server == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          backgroundColor: Color(0xFF1F1E26),
-          content: Text('No sources are reachable right now.'),
-        ),
-      );
-      return;
-    }
-    final url = server.buildUrl(widget.movieId, 'movie', null, null);
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        backgroundColor: Color(0xFF1F1E26),
-        content: Text('Download started. Check Profile → Downloads.'),
-      ),
-    );
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => MyWidget(
-          url: url,
-          tmdbId: widget.movieId,
-          mediaType: 'movie',
-          title: movie.title,
-          posterPath: movie.posterPath,
-          backdropPath: movie.backdropPath,
-          downloadMode: true,
-        ),
+        content: Text(
+            'Extracting stream… download will continue in the background. Check the Downloads tab.'),
       ),
     );
   }
@@ -218,24 +280,55 @@ class _MovieDetailPageState extends State<MovieDetailPage> {
                         children: [
                           Observer(builder: (_) {
                             final key = widget.movieId.toString();
-                            final downloading = downloadStore.active
-                                .any((a) => a.key == key);
+                            final activeMatch = downloadStore.active
+                                .where((a) => a.key == key)
+                                .toList();
                             final done = downloadStore.completed
                                 .any((c) => c.tmdbId == widget.movieId);
+                            if (done) {
+                              return const IconButton(
+                                iconSize: 32,
+                                tooltip: 'Downloaded',
+                                onPressed: null,
+                                icon: Icon(
+                                  Icons.download_done_rounded,
+                                  color: Color(0xFFEF0003),
+                                ),
+                              );
+                            }
+                            if (activeMatch.isNotEmpty) {
+                              final a = activeMatch.first;
+                              final p = a.progress.clamp(0.0, 1.0);
+                              return IconButton(
+                                iconSize: 44,
+                                tooltip: 'Cancel download',
+                                onPressed: () => downloadStore.cancel(a),
+                                icon: Stack(
+                                  alignment: Alignment.center,
+                                  children: [
+                                    SizedBox(
+                                      width: 32,
+                                      height: 32,
+                                      child: CircularProgressIndicator(
+                                        value: p > 0 ? p : null,
+                                        strokeWidth: 2.6,
+                                        color: const Color(0xFFEF0003),
+                                        backgroundColor: Colors.white12,
+                                      ),
+                                    ),
+                                    const Icon(Icons.close_rounded,
+                                        color: Colors.white, size: 16),
+                                  ],
+                                ),
+                              );
+                            }
                             return IconButton(
-                              tooltip: done
-                                  ? 'Downloaded'
-                                  : (downloading ? 'Downloading…' : 'Download'),
-                              onPressed: downloading || done
-                                  ? null
-                                  : () => _startDownload(movie),
-                              icon: Icon(
-                                done
-                                    ? Icons.download_done_rounded
-                                    : Icons.download_rounded,
-                                color: done
-                                    ? const Color(0xFFEF0003)
-                                    : Colors.white,
+                              iconSize: 32,
+                              tooltip: 'Download',
+                              onPressed: () => _startDownload(movie),
+                              icon: const Icon(
+                                Icons.download_rounded,
+                                color: Colors.white,
                               ),
                             );
                           }),
@@ -337,31 +430,10 @@ class _MovieDetailPageState extends State<MovieDetailPage> {
                                 ),
                               )
                             : SqueezeButton(
-                          onTap: _checkingSource
-                              ? null
-                              : () async {
-                            setState(() => _checkingSource = true);
-                            // Probe providers in order until one responds —
-                            // skips dead embeds before we even open the
-                            // headless extractor.
-                            final server = await findReachableServer(
-                              tmdbId: movie.id,
-                              mediaType: 'movie',
-                            );
-                            if (!mounted) return;
-                            setState(() => _checkingSource = false);
-                            if (server == null) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  backgroundColor: Color(0xFF1F1E26),
-                                  content: Text(
-                                    'No sources are reachable right now. '
-                                    'Check your connection and try again.',
-                                  ),
-                                ),
-                              );
-                              return;
-                            }
+                          onTap: () {
+                            // User explicitly chose a source via the pill
+                            // below. Trust the selection; if it's down, the
+                            // in-loading source switcher handles recovery.
                             showPlayerHintToast();
                             final resumeSeconds =
                                 _lastWatched?.progressSeconds ?? 0;
@@ -376,9 +448,8 @@ class _MovieDetailPageState extends State<MovieDetailPage> {
                               posterPath: movie.posterPath,
                               backdropPath: movie.backdropPath,
                             );
-                            final embedUrl = server.buildUrl(
+                            final embedUrl = _selectedServer.buildUrl(
                                 movie.id, 'movie', null, null);
-                            if (!mounted) return;
                             Navigator.push(
                               context,
                               MaterialPageRoute(
@@ -406,41 +477,67 @@ class _MovieDetailPageState extends State<MovieDetailPage> {
                               color: Colors.white,
                               borderRadius: BorderRadius.circular(6),
                             ),
-                            child: _checkingSource
-                                ? const Center(
-                                    child: SizedBox(
-                                      width: 22,
-                                      height: 22,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2.4,
-                                        color: Color(0xFFEF0003),
-                                      ),
-                                    ),
-                                  )
-                                : Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Icon(
-                                        _lastWatched != null
-                                            ? Icons
-                                                .play_circle_outline_rounded
-                                            : Icons.play_arrow,
-                                        size: 28,
-                                        color: Colors.black,
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Text(
-                                        _lastWatched != null
-                                            ? 'Resume'
-                                            : 'Play',
-                                        style: const TextStyle(
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.bold,
-                                          color: Colors.black,
-                                        ),
-                                      ),
-                                    ],
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  _lastWatched != null
+                                      ? Icons.play_circle_outline_rounded
+                                      : Icons.play_arrow,
+                                  size: 28,
+                                  color: Colors.black,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  _lastWatched != null ? 'Resume' : 'Play',
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.black,
                                   ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      // Source pill — tap to swap providers before launching.
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: SqueezeButton(
+                          onTap: _showSourcePicker,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 14, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.06),
+                              borderRadius: BorderRadius.circular(100),
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: 0.12),
+                                width: 1,
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.dns_rounded,
+                                    color: Color(0xFFEF0003), size: 16),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'Source: ${_selectedServer.name}',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w600,
+                                    letterSpacing: -0.1,
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                const Icon(Icons.keyboard_arrow_down_rounded,
+                                    color: Colors.white54, size: 18),
+                              ],
+                            ),
                           ),
                         ),
                       ),

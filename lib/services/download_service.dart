@@ -22,6 +22,29 @@ import 'package:path_provider/path_provider.dart';
 ///
 /// No encryption in v1 — files sit in app-private storage which is already
 /// sandboxed per Android/iOS. Add AES later if needed.
+/// Lightweight cooperative cancel signal — pass one into [DownloadService.download]
+/// and call [cancel] to stop in-flight work. The HLS worker pool checks
+/// [isCancelled] before each segment, and the MP4 path hooks it to Dio's
+/// `CancelToken`.
+class DownloadCancelToken {
+  bool _cancelled = false;
+  CancelToken? _dio;
+  bool get isCancelled => _cancelled;
+
+  void cancel() {
+    _cancelled = true;
+    try {
+      _dio?.cancel('cancelled');
+    } catch (_) {}
+  }
+}
+
+class DownloadCancelledException implements Exception {
+  const DownloadCancelledException();
+  @override
+  String toString() => 'DownloadCancelledException';
+}
+
 class DownloadService {
   DownloadService._();
   static final DownloadService instance = DownloadService._();
@@ -76,6 +99,7 @@ class DownloadService {
     int? episodeNumber,
     void Function(double progress)? onProgress,
     Map<String, dynamic>? meta,
+    DownloadCancelToken? cancelToken,
   }) async {
     final dir = await itemDir(
       tmdbId: tmdbId,
@@ -88,8 +112,8 @@ class DownloadService {
     final isHls = lower.contains('.m3u8');
 
     final String playablePath = isHls
-        ? await _downloadHls(url, headers, dir, onProgress)
-        : await _downloadMp4(url, headers, dir, onProgress);
+        ? await _downloadHls(url, headers, dir, onProgress, cancelToken)
+        : await _downloadMp4(url, headers, dir, onProgress, cancelToken);
 
     // Drop a small JSON manifest alongside so the Downloads page can render
     // a meaningful row (title, poster, duration, etc.).
@@ -114,16 +138,27 @@ class DownloadService {
     Map<String, String> headers,
     Directory dir,
     void Function(double)? onProgress,
+    DownloadCancelToken? cancelToken,
   ) async {
     final out = File('${dir.path}/video.mp4');
-    await _dio.download(
-      url,
-      out.path,
-      options: Options(headers: headers, followRedirects: true),
-      onReceiveProgress: (received, total) {
-        if (total > 0) onProgress?.call(received / total);
-      },
-    );
+    final dioToken = CancelToken();
+    cancelToken?._dio = dioToken;
+    try {
+      await _dio.download(
+        url,
+        out.path,
+        cancelToken: dioToken,
+        options: Options(headers: headers, followRedirects: true),
+        onReceiveProgress: (received, total) {
+          if (total > 0) onProgress?.call(received / total);
+        },
+      );
+    } on DioException catch (e) {
+      if (e.type == DioExceptionType.cancel) {
+        throw const DownloadCancelledException();
+      }
+      rethrow;
+    }
     return out.path;
   }
 
@@ -132,14 +167,18 @@ class DownloadService {
     Map<String, String> headers,
     Directory dir,
     void Function(double)? onProgress,
+    DownloadCancelToken? cancelToken,
   ) async {
+    if (cancelToken?.isCancelled == true) {
+      throw const DownloadCancelledException();
+    }
     final manifestRes = await http.get(Uri.parse(url), headers: headers);
     final manifest = manifestRes.body;
 
     // Master playlist → recurse into the highest-bandwidth variant.
     if (manifest.contains('#EXT-X-STREAM-INF')) {
       final variantUrl = _pickBestVariant(manifest, url);
-      return _downloadHls(variantUrl, headers, dir, onProgress);
+      return _downloadHls(variantUrl, headers, dir, onProgress, cancelToken);
     }
 
     // Media playlist — extract every segment URI.
@@ -148,22 +187,47 @@ class DownloadService {
       throw StateError('HLS manifest has no segments: $url');
     }
 
-    final localNames = <String>[];
-    for (var i = 0; i < segmentUris.length; i++) {
-      final segUrl = segmentUris[i];
-      final segRes = await http.get(Uri.parse(segUrl), headers: headers);
-      if (segRes.statusCode < 200 || segRes.statusCode >= 300) {
-        throw HttpException(
-          'segment ${i + 1} returned ${segRes.statusCode}',
-          uri: Uri.parse(segUrl),
-        );
+    // Pre-allocate local filenames so segments land in the right order even
+    // when fetched concurrently below.
+    final localNames = List<String>.generate(
+      segmentUris.length,
+      (i) => 'seg_${i.toString().padLeft(5, '0')}.ts',
+    );
+
+    // Sequential `await http.get` over hundreds of segments was the
+    // bottleneck — total time was (latency + transfer) × N. Pool of 8
+    // concurrent workers brings it down to roughly N/8 of that. The pool
+    // size is capped to keep memory / sockets reasonable.
+    const concurrency = 8;
+    final queue = List<int>.generate(segmentUris.length, (i) => i);
+    int completed = 0;
+
+    Future<void> worker() async {
+      while (true) {
+        if (cancelToken?.isCancelled == true) {
+          throw const DownloadCancelledException();
+        }
+        int i;
+        if (queue.isEmpty) return;
+        i = queue.removeAt(0);
+        final segUrl = segmentUris[i];
+        final bytes = await _fetchSegmentBytes(segUrl, headers);
+        if (cancelToken?.isCancelled == true) {
+          throw const DownloadCancelledException();
+        }
+        final segFile = File('${dir.path}/${localNames[i]}');
+        await segFile.writeAsBytes(bytes);
+        completed++;
+        onProgress?.call(completed / segmentUris.length);
       }
-      final localName = 'seg_${i.toString().padLeft(5, '0')}.ts';
-      final segFile = File('${dir.path}/$localName');
-      await segFile.writeAsBytes(segRes.bodyBytes);
-      localNames.add(localName);
-      onProgress?.call((i + 1) / segmentUris.length);
     }
+
+    await Future.wait(
+      List<Future<void>>.generate(
+        concurrency.clamp(1, segmentUris.length),
+        (_) => worker(),
+      ),
+    );
 
     // Rewrite the manifest with local relative paths so ExoPlayer reads our
     // downloaded segments instead of going back to the CDN.
@@ -172,6 +236,45 @@ class DownloadService {
     final manifestFile = File('${dir.path}/index.m3u8');
     await manifestFile.writeAsString(localManifest);
     return manifestFile.path;
+  }
+
+  /// Fetch one HLS segment with retry-on-transient-failure. 500 / 502 / 503 /
+  /// 504 / 429 / network errors get retried with exponential backoff
+  /// (400ms, 800ms, 1600ms). 4xx (other than 429) and the last attempt's
+  /// failure are rethrown. This is what makes the difference between
+  /// "reached 99% and exploded" and a clean finish — CDN-edge hiccups on
+  /// the last few segments are the common cause of mid-download 500s.
+  Future<List<int>> _fetchSegmentBytes(
+    String url,
+    Map<String, String> headers,
+  ) async {
+    const maxAttempts = 4;
+    Object? lastError;
+    for (var attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        final res = await http.get(Uri.parse(url), headers: headers);
+        final code = res.statusCode;
+        if (code >= 200 && code < 300) return res.bodyBytes;
+        // Permanent client errors — no point retrying.
+        if (code >= 400 && code < 500 && code != 429) {
+          throw HttpException(
+            'segment returned $code',
+            uri: Uri.parse(url),
+          );
+        }
+        lastError = HttpException(
+          'segment returned $code',
+          uri: Uri.parse(url),
+        );
+      } catch (e) {
+        lastError = e;
+      }
+      if (attempt < maxAttempts - 1) {
+        await Future.delayed(Duration(milliseconds: 400 * (1 << attempt)));
+      }
+    }
+    throw lastError ??
+        HttpException('segment failed', uri: Uri.parse(url));
   }
 
   String _pickBestVariant(String masterManifest, String baseUrl) {

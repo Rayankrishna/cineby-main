@@ -170,10 +170,13 @@ class _AvatarPickerSheetState extends State<AvatarPickerSheet> {
       itemCount: _choices.length,
       itemBuilder: (context, index) {
         final c = _choices[index];
-        final isSelected = selected == c.path;
+        final fullUrl = 'https://image.tmdb.org/t/p/w300${c.path}';
+        final isSelected = selected == fullUrl;
         return SqueezeButton(
           onTap: () async {
-            await authStore.setAvatarPath(c.path);
+            // Store the full image URL (what the backend persists in
+            // `User.avatarUrl`) — not just the TMDB path fragment.
+            await authStore.setAvatarPath(fullUrl);
             if (mounted) Navigator.pop(context);
           },
           child: Column(

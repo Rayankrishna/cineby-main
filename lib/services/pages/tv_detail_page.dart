@@ -5,6 +5,7 @@ import 'package:app_web_ui/services/responsive.dart';
 import 'package:app_web_ui/services/stream_servers.dart';
 import 'package:app_web_ui/services/toast.dart';
 import 'package:app_web_ui/shared/squeeze_button.dart';
+import 'package:app_web_ui/stores/download_store.dart';
 import 'package:app_web_ui/stores/history_store.dart';
 import 'package:app_web_ui/stores/tv_detail_store.dart';
 import 'package:app_web_ui/stores/watchlist_store.dart';
@@ -24,7 +25,86 @@ class _TvDetailPageState extends State<TvDetailPage> {
   final TvDetailStore _store = TvDetailStore();
   HistoryItem? _lastWatched;
   bool _lastWatchedLoaded = false;
-  bool _checkingSource = false;
+  // User-selected stream provider. Defaults to streamServers.first; tapping
+  // the Source pill below the Play button swaps it for the next launch.
+  StreamServer _selectedServer = streamServers.first;
+
+  void _showSourcePicker() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF1F1E26),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(20, 12, 20, 8),
+                child: Row(
+                  children: [
+                    Icon(Icons.dns_rounded,
+                        color: Color(0xFFEF0003), size: 22),
+                    SizedBox(width: 10),
+                    Text('Choose source',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                        )),
+                  ],
+                ),
+              ),
+              for (final s in streamServers)
+                InkWell(
+                  onTap: () {
+                    Navigator.of(ctx).pop();
+                    setState(() => _selectedServer = s);
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20, vertical: 12),
+                    child: Row(
+                      children: [
+                        Icon(Icons.play_circle_outline_rounded,
+                            color: s == _selectedServer
+                                ? const Color(0xFFEF0003)
+                                : Colors.white70,
+                            size: 20),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Text(
+                            s.name,
+                            style: TextStyle(
+                              color: s == _selectedServer
+                                  ? const Color(0xFFEF0003)
+                                  : Colors.white,
+                              fontSize: 14.5,
+                              fontWeight: s == _selectedServer
+                                  ? FontWeight.w600
+                                  : FontWeight.w400,
+                            ),
+                          ),
+                        ),
+                        if (s == _selectedServer)
+                          const Icon(Icons.check_rounded,
+                              color: Color(0xFFEF0003), size: 18),
+                      ],
+                    ),
+                  ),
+                ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   void initState() {
@@ -48,12 +128,36 @@ class _TvDetailPageState extends State<TvDetailPage> {
     return date.split('-').first;
   }
 
-  Future<void> _playEpisode(
+  void _downloadEpisode(int season, int episode) {
+    // Fire-and-forget. Backing out of the TV detail page mid-extraction
+    // no longer cancels the download.
+    final tv = _store.tvDetail;
+    final embedUrl =
+        _selectedServer.buildUrl(widget.tvId, 'tv', season, episode);
+    downloadStore.startWithExtraction(
+      embedUrl: embedUrl,
+      tmdbId: widget.tvId,
+      mediaType: 'tv',
+      seasonNumber: season,
+      episodeNumber: episode,
+      title: tv?.name,
+      posterPath: tv?.posterPath,
+      backdropPath: tv?.backdropPath,
+    );
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+            'Extracting S$season · E$episode… continues in the background.'),
+      ),
+    );
+  }
+
+  void _playEpisode(
     int season,
     int episode, {
     int progressSeconds = 0,
     int? runtimeMinutes,
-  }) async {
+  }) {
     final tv = _store.tvDetail;
     // Look up episode runtime from the loaded season if not provided.
     final ep = _store.selectedSeason?.episodes.firstWhere(
@@ -63,30 +167,9 @@ class _TvDetailPageState extends State<TvDetailPage> {
     final runtime = runtimeMinutes ?? ep?.runtime;
     final durationSeconds = (runtime != null && runtime > 0) ? runtime * 60 : null;
 
-    // Probe providers in order until one responds — skips dead embeds before
-    // we even open the headless extractor.
-    setState(() => _checkingSource = true);
-    final server = await findReachableServer(
-      tmdbId: widget.tvId,
-      mediaType: 'tv',
-      seasonNumber: season,
-      episodeNumber: episode,
-    );
-    if (!mounted) return;
-    setState(() => _checkingSource = false);
-    if (server == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          backgroundColor: Color(0xFF1F1E26),
-          content: Text(
-            'No sources are reachable right now. '
-            'Check your connection and try again.',
-          ),
-        ),
-      );
-      return;
-    }
-
+    // User explicitly chose a source via the pill below the Play button.
+    // Trust the selection; if it's down, the in-loading source switcher
+    // handles recovery.
     showPlayerHintToast();
     historyStore.record(
       tmdbId: widget.tvId,
@@ -99,8 +182,7 @@ class _TvDetailPageState extends State<TvDetailPage> {
       posterPath: tv?.posterPath,
       backdropPath: tv?.backdropPath,
     );
-    final url = server.buildUrl(widget.tvId, 'tv', season, episode);
-    if (!mounted) return;
+    final url = _selectedServer.buildUrl(widget.tvId, 'tv', season, episode);
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -324,9 +406,7 @@ class _TvDetailPageState extends State<TvDetailPage> {
                     ),
                   )
                 : SqueezeButton(
-              onTap: _checkingSource
-                  ? null
-                  : () {
+              onTap: () {
                 if (_lastWatched != null) {
                   _playEpisode(
                     _lastWatched!.seasonNumber ?? 1,
@@ -346,45 +426,74 @@ class _TvDetailPageState extends State<TvDetailPage> {
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(6),
                 ),
-                child: _checkingSource
-                    ? const Center(
-                        child: SizedBox(
-                          width: 22,
-                          height: 22,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2.4,
-                            color: Color(0xFFEF0003),
-                          ),
-                        ),
-                      )
-                    : Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            _lastWatched != null
-                                ? Icons.play_circle_outline_rounded
-                                : Icons.play_arrow,
-                            size: 28,
-                            color: Colors.black,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            _lastWatched != null
-                                ? 'Resume S${_lastWatched!.seasonNumber} · E${_lastWatched!.episodeNumber}'
-                                : (() {
-                                    final s = tv.seasons.isNotEmpty
-                                        ? tv.seasons.first.seasonNumber
-                                        : 1;
-                                    return 'Play S$s · E1';
-                                  })(),
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.black,
-                            ),
-                          ),
-                        ],
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      _lastWatched != null
+                          ? Icons.play_circle_outline_rounded
+                          : Icons.play_arrow,
+                      size: 28,
+                      color: Colors.black,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      _lastWatched != null
+                          ? 'Resume S${_lastWatched!.seasonNumber} · E${_lastWatched!.episodeNumber}'
+                          : (() {
+                              final s = tv.seasons.isNotEmpty
+                                  ? tv.seasons.first.seasonNumber
+                                  : 1;
+                              return 'Play S$s · E1';
+                            })(),
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black,
                       ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          // Source pill — tap to swap providers before launching.
+          Align(
+            alignment: Alignment.centerLeft,
+            child: SqueezeButton(
+              onTap: _showSourcePicker,
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.06),
+                  borderRadius: BorderRadius.circular(100),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.12),
+                    width: 1,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.dns_rounded,
+                        color: Color(0xFFEF0003), size: 16),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Source: ${_selectedServer.name}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: -0.1,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    const Icon(Icons.keyboard_arrow_down_rounded,
+                        color: Colors.white54, size: 18),
+                  ],
+                ),
               ),
             ),
           ),
@@ -621,8 +730,11 @@ class _TvDetailPageState extends State<TvDetailPage> {
         return CenteredMaxWidth(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: _EpisodeTile(
+            tvId: widget.tvId,
             episode: ep,
             onTap: () => _playEpisode(ep.seasonNumber, ep.episodeNumber),
+            onDownload: () =>
+                _downloadEpisode(ep.seasonNumber, ep.episodeNumber),
           ),
         );
       },
@@ -631,10 +743,20 @@ class _TvDetailPageState extends State<TvDetailPage> {
 }
 
 class _EpisodeTile extends StatelessWidget {
-  const _EpisodeTile({required this.episode, required this.onTap});
+  const _EpisodeTile({
+    required this.tvId,
+    required this.episode,
+    required this.onTap,
+    required this.onDownload,
+  });
 
+  final int tvId;
   final Episode episode;
   final VoidCallback onTap;
+  final VoidCallback onDownload;
+
+  String get _dlKey =>
+      '${tvId}_s${episode.seasonNumber}e${episode.episodeNumber}';
 
   @override
   Widget build(BuildContext context) {
@@ -733,6 +855,63 @@ class _EpisodeTile extends StatelessWidget {
                 ],
               ),
             ),
+            // Per-episode download icon — observes the DownloadStore so it
+            // renders idle / progress / done / cancel correctly. Hit-tested
+            // before the outer SqueezeButton (taps here don't start playback).
+            Observer(builder: (_) {
+              final active = downloadStore.active
+                  .where((a) => a.key == _dlKey)
+                  .toList();
+              final isDone = downloadStore.completed.any((c) =>
+                  c.tmdbId == tvId &&
+                  c.seasonNumber == episode.seasonNumber &&
+                  c.episodeNumber == episode.episodeNumber);
+              if (isDone) {
+                return const Padding(
+                  padding: EdgeInsets.only(left: 8),
+                  child: Icon(Icons.download_done_rounded,
+                      color: Color(0xFFEF0003), size: 32),
+                );
+              }
+              if (active.isNotEmpty) {
+                final a = active.first;
+                final p = a.progress.clamp(0.0, 1.0);
+                // Stack a progress ring with a ✕ cancel icon in the middle.
+                // Tap the whole thing to abort + wipe partials.
+                return Padding(
+                  padding: const EdgeInsets.only(left: 4),
+                  child: IconButton(
+                    iconSize: 44,
+                    tooltip: 'Cancel download',
+                    onPressed: () => downloadStore.cancel(a),
+                    icon: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        SizedBox(
+                          width: 32,
+                          height: 32,
+                          child: CircularProgressIndicator(
+                            value: p > 0 ? p : null,
+                            strokeWidth: 2.6,
+                            color: const Color(0xFFEF0003),
+                            backgroundColor: Colors.white12,
+                          ),
+                        ),
+                        const Icon(Icons.close_rounded,
+                            color: Colors.white, size: 16),
+                      ],
+                    ),
+                  ),
+                );
+              }
+              return IconButton(
+                iconSize: 32,
+                icon: const Icon(Icons.download_rounded,
+                    color: Colors.white70),
+                tooltip: 'Download',
+                onPressed: onDownload,
+              );
+            }),
           ],
         ),
       ),

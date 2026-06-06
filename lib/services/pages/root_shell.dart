@@ -1,3 +1,4 @@
+import 'package:app_web_ui/services/pages/downloads_page.dart';
 import 'package:app_web_ui/services/pages/home.dart';
 import 'package:app_web_ui/services/pages/profile_page.dart';
 import 'package:flutter/material.dart';
@@ -22,6 +23,7 @@ class _RootShellState extends State<RootShell> {
             index: _index,
             children: const [
               MyHomePage(title: 'Reelix'),
+              DownloadsPage(),
               ProfilePage(),
             ],
           ),
@@ -85,10 +87,17 @@ class _FloatingNav extends StatelessWidget {
           ),
           const SizedBox(width: 4),
           _NavPill(
-            icon: Icons.person_rounded,
-            label: 'Profile',
+            icon: Icons.download_rounded,
+            label: 'Downloads',
             selected: index == 1,
             onTap: () => onChanged(1),
+          ),
+          const SizedBox(width: 4),
+          _NavPill(
+            icon: Icons.person_rounded,
+            label: 'Profile',
+            selected: index == 2,
+            onTap: () => onChanged(2),
           ),
         ],
       ),

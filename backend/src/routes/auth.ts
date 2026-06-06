@@ -23,10 +23,17 @@ const issueTokens = async (userId: string, email: string) => {
   return { accessToken, refreshToken };
 };
 
-const publicUser = (u: { id: string; name: string; email: string; createdAt: Date }) => ({
+const publicUser = (u: {
+  id: string;
+  name: string;
+  email: string;
+  avatarUrl: string | null;
+  createdAt: Date;
+}) => ({
   id: u.id,
   name: u.name,
   email: u.email,
+  avatarUrl: u.avatarUrl,
   createdAt: u.createdAt,
 });
 

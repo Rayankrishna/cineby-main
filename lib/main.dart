@@ -37,6 +37,18 @@ class MyApp extends StatelessWidget {
       ).copyWith(surface: surface),
       scaffoldBackgroundColor: background,
       pageTransitionsTheme: pageTransitions,
+      // Material 3 picks light snackbar surface by default which makes our
+      // dark-bg snackbars unreadable. Force white content text everywhere.
+      snackBarTheme: const SnackBarThemeData(
+        backgroundColor: Color(0xFF1F1E26),
+        contentTextStyle: TextStyle(
+          color: Colors.white,
+          fontSize: 13,
+          fontWeight: FontWeight.w500,
+        ),
+        actionTextColor: Color(0xFFEF0003),
+        behavior: SnackBarBehavior.floating,
+      ),
     );
 
     final textTheme = GoogleFonts.manropeTextTheme(

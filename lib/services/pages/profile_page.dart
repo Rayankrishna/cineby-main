@@ -1,6 +1,5 @@
 import 'package:app_web_ui/services/page_transitions.dart';
 import 'package:app_web_ui/services/pages/avatar_picker.dart';
-import 'package:app_web_ui/services/pages/downloads_page.dart';
 import 'package:app_web_ui/services/pages/movie_detail_page.dart';
 import 'package:app_web_ui/services/pages/tv_detail_page.dart';
 import 'package:app_web_ui/services/responsive.dart';
@@ -256,19 +255,6 @@ class _ProfilePageState extends State<ProfilePage> {
                 fontWeight: FontWeight.w600,
                 letterSpacing: 1.4,
               ),
-            ),
-          ),
-          _AccountTile(
-            icon: Icons.person_outline_rounded,
-            label: 'Change avatar',
-            onTap: () => AvatarPickerSheet.show(context),
-          ),
-          _AccountTile(
-            icon: Icons.download_rounded,
-            label: 'Downloads',
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const DownloadsPage()),
             ),
           ),
           _AccountTile(
@@ -673,7 +659,10 @@ class _AvatarCircle extends StatelessWidget {
         child:
             avatarPath != null
                 ? Image.network(
-                  'https://image.tmdb.org/t/p/w300$avatarPath',
+                  // avatarPath now holds a full image URL (what the
+                  // backend stores in `User.avatarUrl`) — no need to
+                  // prepend the TMDB image base.
+                  avatarPath!,
                   width: size,
                   height: size,
                   fit: BoxFit.cover,

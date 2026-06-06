@@ -25,6 +25,11 @@ abstract class _AuthStore with Store {
   @observable
   AuthUser? user;
 
+  // Stores the FULL avatar image URL (e.g.
+  // `https://image.tmdb.org/t/p/w300/abc.jpg`). The field is still named
+  // `avatarPath` for backward compatibility with the generated MobX atom
+  // (`_$avatarPathAtom` in auth_store.g.dart) — renaming would require
+  // a build_runner regeneration that's currently broken on this Dart SDK.
   @observable
   String? avatarPath;
 
@@ -34,7 +39,9 @@ abstract class _AuthStore with Store {
   @observable
   String? errorMessage;
 
-  String _avatarKey(String userId) => 'reelix.avatar.$userId';
+  // Key prefix bumped from `reelix.avatar.*` so old caches (which held only
+  // a TMDB path like `/abc.jpg`) are ignored — they'd render as broken URLs.
+  String _avatarKey(String userId) => 'reelix.avatarUrl.$userId';
 
   @computed
   bool get isAuthenticated => user != null;
@@ -55,32 +62,58 @@ abstract class _AuthStore with Store {
     await _api.loadTokens();
     if (!_api.isAuthenticated) return;
     try {
+      // Warm from local cache first so the avatar appears instantly while
+      // the server round-trip happens. The server response then overwrites.
+      await _loadCachedAvatar();
       final res = await _api.dio.get('/me');
-      user = AuthUser.fromJson(res.data as Map<String, dynamic>);
-      await _loadAvatar();
+      final data = res.data as Map<String, dynamic>;
+      user = AuthUser.fromJson(data);
+      await _adoptServerAvatar(data['avatarUrl'] as String?);
     } catch (_) {
       await _api.clearTokens();
       user = null;
     }
   }
 
-  Future<void> _loadAvatar() async {
+  Future<void> _loadCachedAvatar() async {
     final u = user;
     if (u == null) return;
     final prefs = await SharedPreferences.getInstance();
-    avatarPath = prefs.getString(_avatarKey(u.id));
+    final cached = prefs.getString(_avatarKey(u.id));
+    if (cached != null) avatarPath = cached;
   }
 
-  @action
-  Future<void> setAvatarPath(String? path) async {
-    avatarPath = path;
+  Future<void> _adoptServerAvatar(String? url) async {
+    avatarPath = url;
     final u = user;
     if (u == null) return;
     final prefs = await SharedPreferences.getInstance();
-    if (path == null) {
+    if (url == null) {
       await prefs.remove(_avatarKey(u.id));
     } else {
-      await prefs.setString(_avatarKey(u.id), path);
+      await prefs.setString(_avatarKey(u.id), url);
+    }
+  }
+
+  /// Called by the avatar picker with a full image URL (or `null` to clear).
+  /// Mirrors to the server via `PATCH /me` and to the local cache.
+  @action
+  Future<void> setAvatarPath(String? url) async {
+    // Optimistic local update so the UI flips immediately.
+    avatarPath = url;
+    final u = user;
+    if (u == null) return;
+    final prefs = await SharedPreferences.getInstance();
+    if (url == null) {
+      await prefs.remove(_avatarKey(u.id));
+    } else {
+      await prefs.setString(_avatarKey(u.id), url);
+    }
+    try {
+      await _api.dio.patch('/me', data: {'avatarUrl': url ?? ''});
+    } catch (_) {
+      // Best-effort sync — the cache still serves the latest value locally,
+      // and a successful future PATCH will reconcile with the server.
     }
   }
 
@@ -102,8 +135,9 @@ abstract class _AuthStore with Store {
         res.data['accessToken'] as String,
         res.data['refreshToken'] as String,
       );
-      user = AuthUser.fromJson(res.data['user'] as Map<String, dynamic>);
-      await _loadAvatar();
+      final userJson = res.data['user'] as Map<String, dynamic>;
+      user = AuthUser.fromJson(userJson);
+      await _adoptServerAvatar(userJson['avatarUrl'] as String?);
       return true;
     } catch (e) {
       errorMessage = _extractError(e);
@@ -126,8 +160,9 @@ abstract class _AuthStore with Store {
         res.data['accessToken'] as String,
         res.data['refreshToken'] as String,
       );
-      user = AuthUser.fromJson(res.data['user'] as Map<String, dynamic>);
-      await _loadAvatar();
+      final userJson = res.data['user'] as Map<String, dynamic>;
+      user = AuthUser.fromJson(userJson);
+      await _adoptServerAvatar(userJson['avatarUrl'] as String?);
       return true;
     } catch (e) {
       errorMessage = _extractError(e);
