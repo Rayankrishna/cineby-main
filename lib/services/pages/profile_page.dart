@@ -1,5 +1,6 @@
 import 'package:app_web_ui/services/page_transitions.dart';
 import 'package:app_web_ui/services/pages/avatar_picker.dart';
+import 'package:app_web_ui/services/pages/downloads_page.dart';
 import 'package:app_web_ui/services/pages/movie_detail_page.dart';
 import 'package:app_web_ui/services/pages/tv_detail_page.dart';
 import 'package:app_web_ui/services/responsive.dart';
@@ -26,19 +27,18 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Future<void> _refresh() async {
-    await Future.wait([
-      historyStore.fetch(),
-      watchlistStore.fetch(),
-    ]);
+    await Future.wait([historyStore.fetch(), watchlistStore.fetch()]);
   }
 
   void _openDetail(int tmdbId, String mediaType) {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => mediaType == 'tv'
-            ? TvDetailPage(tvId: tmdbId)
-            : MovieDetailPage(movieId: tmdbId),
+        builder:
+            (_) =>
+                mediaType == 'tv'
+                    ? TvDetailPage(tvId: tmdbId)
+                    : MovieDetailPage(movieId: tmdbId),
       ),
     );
   }
@@ -62,9 +62,8 @@ class _ProfilePageState extends State<ProfilePage> {
           // which meant freshly-played movies (initial record at 0s) only
           // appeared after the native player's first 30s+ tick — and not at
           // all if extraction failed or the user backed out early.
-          final inProgress = historyStore.items
-              .where((h) => !h.completed)
-              .toList();
+          final inProgress =
+              historyStore.items.where((h) => !h.completed).toList();
 
           return RefreshIndicator(
             color: const Color(0xFFEF0003),
@@ -87,21 +86,23 @@ class _ProfilePageState extends State<ProfilePage> {
                 SliverToBoxAdapter(
                   child: _SectionHeader(
                     title: 'My Watchlist',
-                    subtitle: watchlistStore.items.isEmpty
-                        ? 'Nothing saved yet'
-                        : '${watchlistStore.items.length} '
-                            '${watchlistStore.items.length == 1 ? 'title' : 'titles'} '
-                            'to watch',
+                    subtitle:
+                        watchlistStore.items.isEmpty
+                            ? 'Nothing saved yet'
+                            : '${watchlistStore.items.length} '
+                                '${watchlistStore.items.length == 1 ? 'title' : 'titles'} '
+                                'to watch',
                   ),
                 ),
                 _watchlistSliver(),
                 SliverToBoxAdapter(
                   child: _SectionHeader(
                     title: 'History',
-                    subtitle: historyStore.items.isEmpty
-                        ? 'Nothing yet'
-                        : '${historyStore.items.length} '
-                            'recently watched',
+                    subtitle:
+                        historyStore.items.isEmpty
+                            ? 'Nothing yet'
+                            : '${historyStore.items.length} '
+                                'recently watched',
                   ),
                 ),
                 _historySliver(),
@@ -116,104 +117,102 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Widget _buildHero() {
-    return Observer(builder: (_) {
-      final user = authStore.user;
-      final avatarPath = authStore.avatarPath;
-      return Stack(
-        children: [
-          Positioned.fill(
-            child: IgnorePointer(
-              child: Container(
-                height: 260,
-                decoration: const BoxDecoration(
-                  gradient: RadialGradient(
-                    center: Alignment(0, -0.9),
-                    radius: 0.85,
-                    colors: [
-                      Color(0x33E50914),
-                      Color(0x00000000),
-                    ],
+    return Observer(
+      builder: (_) {
+        final user = authStore.user;
+        final avatarPath = authStore.avatarPath;
+        return Stack(
+          children: [
+            Positioned.fill(
+              child: IgnorePointer(
+                child: Container(
+                  height: 260,
+                  decoration: const BoxDecoration(
+                    gradient: RadialGradient(
+                      center: Alignment(0, -0.9),
+                      radius: 0.85,
+                      colors: [Color(0x33E50914), Color(0x00000000)],
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 56, 20, 8),
-            child: CenteredMaxWidth(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  GestureDetector(
-                    onTap: () => AvatarPickerSheet.show(context),
-                    child: Stack(
-                      clipBehavior: Clip.none,
-                      children: [
-                        _AvatarCircle(
-                          avatarPath: avatarPath,
-                          initials: _initials(user?.name),
-                          size: 96,
-                        ),
-                        Positioned(
-                          right: -2,
-                          bottom: -2,
-                          child: Container(
-                            width: 28,
-                            height: 28,
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF1F1E26),
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: const Color(0xFF18181A),
-                                width: 2,
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 56, 20, 8),
+              child: CenteredMaxWidth(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    GestureDetector(
+                      onTap: () => AvatarPickerSheet.show(context),
+                      child: Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          _AvatarCircle(
+                            avatarPath: avatarPath,
+                            initials: _initials(user?.name),
+                            size: 96,
+                          ),
+                          Positioned(
+                            right: -2,
+                            bottom: -2,
+                            child: Container(
+                              width: 28,
+                              height: 28,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF1F1E26),
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: const Color(0xFF18181A),
+                                  width: 2,
+                                ),
+                              ),
+                              child: const Icon(
+                                Icons.edit_rounded,
+                                color: Colors.white,
+                                size: 14,
                               ),
                             ),
-                            child: const Icon(
-                              Icons.edit_rounded,
-                              color: Colors.white,
-                              size: 14,
-                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 14),
-                  Text(
-                    user?.name ?? 'Guest',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 22,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: -0.6,
+                    const SizedBox(height: 14),
+                    Text(
+                      user?.name ?? 'Guest',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 22,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: -0.6,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    user?.email ?? '',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white54,
-                      fontSize: 13,
-                      letterSpacing: -0.1,
+                    const SizedBox(height: 2),
+                    Text(
+                      user?.email ?? '',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white54,
+                        fontSize: 13,
+                        letterSpacing: -0.1,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
-      );
-    });
+          ],
+        );
+      },
+    );
   }
 
   Widget _buildStatLine(int inProgressCount) {
     final watchlistCount = watchlistStore.items.length;
-    final completedCount =
-        historyStore.items.where((h) => h.completed).length;
+    final completedCount = historyStore.items.where((h) => h.completed).length;
     return CenteredMaxWidth(
       padding: const EdgeInsets.fromLTRB(20, 14, 20, 4),
       child: DefaultTextStyle(
@@ -233,8 +232,7 @@ class _ProfilePageState extends State<ProfilePage> {
             _StatInline(
               value: completedCount,
               label: 'finished',
-              valueColor:
-                  completedCount > 0 ? const Color(0xFFF7BB0D) : null,
+              valueColor: completedCount > 0 ? const Color(0xFFF7BB0D) : null,
             ),
           ],
         ),
@@ -266,6 +264,14 @@ class _ProfilePageState extends State<ProfilePage> {
             onTap: () => AvatarPickerSheet.show(context),
           ),
           _AccountTile(
+            icon: Icons.download_rounded,
+            label: 'Downloads',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const DownloadsPage()),
+            ),
+          ),
+          _AccountTile(
             icon: Icons.logout_rounded,
             label: 'Sign out',
             destructive: true,
@@ -283,7 +289,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Widget _continueWatchingRail(List inProgress) {
     return SizedBox(
-      height: 218,
+      height: 220,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.fromLTRB(20, 4, 20, 4),
@@ -291,10 +297,13 @@ class _ProfilePageState extends State<ProfilePage> {
         separatorBuilder: (_, __) => const SizedBox(width: 12),
         itemBuilder: (context, i) {
           final item = inProgress[i];
-          final progress = item.durationSeconds != null &&
-                  item.durationSeconds! > 0
-              ? (item.progressSeconds / item.durationSeconds!).clamp(0.0, 1.0)
-              : 0.0;
+          final progress =
+              item.durationSeconds != null && item.durationSeconds! > 0
+                  ? (item.progressSeconds / item.durationSeconds!).clamp(
+                    0.0,
+                    1.0,
+                  )
+                  : 0.0;
           return FadeInUp(
             delay: Duration(milliseconds: 30 * i),
             child: SqueezeButton(
@@ -311,25 +320,27 @@ class _ProfilePageState extends State<ProfilePage> {
                           child: SizedBox(
                             width: 142,
                             height: 200 * 0.84,
-                            child: item.posterPath != null
-                                ? Image.network(
-                                    'https://image.tmdb.org/t/p/w300${item.posterPath}',
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (_, __, ___) => Container(
+                            child:
+                                item.posterPath != null
+                                    ? Image.network(
+                                      'https://image.tmdb.org/t/p/w300${item.posterPath}',
+                                      fit: BoxFit.cover,
+                                      errorBuilder:
+                                          (_, __, ___) => Container(
+                                            color: const Color(0xFF35343E),
+                                            child: const Icon(
+                                              Icons.movie_rounded,
+                                              color: Colors.white24,
+                                            ),
+                                          ),
+                                    )
+                                    : Container(
                                       color: const Color(0xFF35343E),
                                       child: const Icon(
                                         Icons.movie_rounded,
                                         color: Colors.white24,
                                       ),
                                     ),
-                                  )
-                                : Container(
-                                    color: const Color(0xFF35343E),
-                                    child: const Icon(
-                                      Icons.movie_rounded,
-                                      color: Colors.white24,
-                                    ),
-                                  ),
                           ),
                         ),
                         Positioned(
@@ -341,8 +352,9 @@ class _ProfilePageState extends State<ProfilePage> {
                             child: LinearProgressIndicator(
                               value: progress,
                               minHeight: 3,
-                              backgroundColor:
-                                  Colors.white.withValues(alpha: 0.25),
+                              backgroundColor: Colors.white.withValues(
+                                alpha: 0.25,
+                              ),
                               valueColor: const AlwaysStoppedAnimation(
                                 Color(0xFFEF0003),
                               ),
@@ -383,25 +395,28 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Widget _watchlistSliver() {
-    return Observer(builder: (_) {
-      final items = watchlistStore.items;
-      if (items.isEmpty) {
-        return const SliverToBoxAdapter(
-          child: _EmptyState(text: 'Tap the bookmark on any title to save it'),
-        );
-      }
-      return SliverPadding(
-        padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
-        sliver: SliverGrid(
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount:
-                posterGridColumns(MediaQuery.of(context).size.width),
-            childAspectRatio: 0.58,
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 18,
-          ),
-          delegate: SliverChildBuilderDelegate(
-            (context, index) {
+    return Observer(
+      builder: (_) {
+        final items = watchlistStore.items;
+        if (items.isEmpty) {
+          return const SliverToBoxAdapter(
+            child: _EmptyState(
+              text: 'Tap the bookmark on any title to save it',
+            ),
+          );
+        }
+        return SliverPadding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
+          sliver: SliverGrid(
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: posterGridColumns(
+                MediaQuery.of(context).size.width,
+              ),
+              childAspectRatio: 0.58,
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 18,
+            ),
+            delegate: SliverChildBuilderDelegate((context, index) {
               final item = items[index];
               return FadeInUp(
                 delay: Duration(milliseconds: 30 * (index % 12)),
@@ -413,26 +428,28 @@ class _ProfilePageState extends State<ProfilePage> {
                       Expanded(
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(14),
-                          child: item.posterPath != null
-                              ? Image.network(
-                                  'https://image.tmdb.org/t/p/w300${item.posterPath}',
-                                  fit: BoxFit.cover,
-                                  width: double.infinity,
-                                  errorBuilder: (_, __, ___) => Container(
+                          child:
+                              item.posterPath != null
+                                  ? Image.network(
+                                    'https://image.tmdb.org/t/p/w300${item.posterPath}',
+                                    fit: BoxFit.cover,
+                                    width: double.infinity,
+                                    errorBuilder:
+                                        (_, __, ___) => Container(
+                                          color: const Color(0xFF35343E),
+                                          child: const Icon(
+                                            Icons.movie_rounded,
+                                            color: Colors.white24,
+                                          ),
+                                        ),
+                                  )
+                                  : Container(
                                     color: const Color(0xFF35343E),
                                     child: const Icon(
                                       Icons.movie_rounded,
                                       color: Colors.white24,
                                     ),
                                   ),
-                                )
-                              : Container(
-                                  color: const Color(0xFF35343E),
-                                  child: const Icon(
-                                    Icons.movie_rounded,
-                                    color: Colors.white24,
-                                  ),
-                                ),
                         ),
                       ),
                       const SizedBox(height: 8),
@@ -455,113 +472,118 @@ class _ProfilePageState extends State<ProfilePage> {
                   ),
                 ),
               );
-            },
-            childCount: items.length,
+            }, childCount: items.length),
           ),
-        ),
-      );
-    });
+        );
+      },
+    );
   }
 
   Widget _historySliver() {
-    return Observer(builder: (_) {
-      final items = historyStore.items;
-      if (items.isEmpty) {
-        return const SliverToBoxAdapter(
-          child: _EmptyState(text: 'Hit play on something to start your history'),
-        );
-      }
-      return SliverPadding(
-        padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
-        sliver: SliverList.separated(
-          itemCount: items.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 10),
-          itemBuilder: (context, index) {
-            final item = items[index];
-            return Dismissible(
-              key: ValueKey(item.id),
-              direction: DismissDirection.endToStart,
-              background: Container(
-                alignment: Alignment.centerRight,
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFEF0003).withValues(alpha: 0.85),
-                  borderRadius: BorderRadius.circular(14),
+    return Observer(
+      builder: (_) {
+        final items = historyStore.items;
+        if (items.isEmpty) {
+          return const SliverToBoxAdapter(
+            child: _EmptyState(
+              text: 'Hit play on something to start your history',
+            ),
+          );
+        }
+        return SliverPadding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+          sliver: SliverList.separated(
+            itemCount: items.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 10),
+            itemBuilder: (context, index) {
+              final item = items[index];
+              return Dismissible(
+                key: ValueKey(item.id),
+                direction: DismissDirection.endToStart,
+                background: Container(
+                  alignment: Alignment.centerRight,
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEF0003).withValues(alpha: 0.85),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: const Icon(Icons.delete_outline, color: Colors.white),
                 ),
-                child: const Icon(Icons.delete_outline, color: Colors.white),
-              ),
-              onDismissed: (_) => historyStore.remove(item.id),
-              child: SqueezeButton(
-                onTap: () => _openDetail(item.tmdbId, item.mediaType),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 6),
-                  child: Row(
-                    children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(10),
-                        child: SizedBox(
-                          width: 54,
-                          height: 80,
-                          child: item.posterPath != null
-                              ? Image.network(
-                                  'https://image.tmdb.org/t/p/w185${item.posterPath}',
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (_, __, ___) => Container(
-                                    color: const Color(0xFF35343E),
-                                    child: const Icon(
-                                      Icons.movie_rounded,
-                                      color: Colors.white24,
+                onDismissed: (_) => historyStore.remove(item.id),
+                child: SqueezeButton(
+                  onTap: () => _openDetail(item.tmdbId, item.mediaType),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    child: Row(
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: SizedBox(
+                            width: 54,
+                            height: 80,
+                            child:
+                                item.posterPath != null
+                                    ? Image.network(
+                                      'https://image.tmdb.org/t/p/w185${item.posterPath}',
+                                      fit: BoxFit.cover,
+                                      errorBuilder:
+                                          (_, __, ___) => Container(
+                                            color: const Color(0xFF35343E),
+                                            child: const Icon(
+                                              Icons.movie_rounded,
+                                              color: Colors.white24,
+                                            ),
+                                          ),
+                                    )
+                                    : Container(
+                                      color: const Color(0xFF35343E),
+                                      child: const Icon(
+                                        Icons.movie_rounded,
+                                        color: Colors.white24,
+                                      ),
                                     ),
-                                  ),
-                                )
-                              : Container(
-                                  color: const Color(0xFF35343E),
-                                  child: const Icon(
-                                    Icons.movie_rounded,
-                                    color: Colors.white24,
-                                  ),
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                item.title ?? 'Unknown',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 14.5,
+                                  fontWeight: FontWeight.w600,
+                                  letterSpacing: -0.2,
                                 ),
-                        ),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              item.title ?? 'Unknown',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 14.5,
-                                fontWeight: FontWeight.w600,
-                                letterSpacing: -0.2,
                               ),
-                            ),
-                            const SizedBox(height: 3),
-                            Text(
-                              item.mediaType == 'tv'
-                                  ? 'TV · S${item.seasonNumber} E${item.episodeNumber}'
-                                  : 'Movie',
-                              style: const TextStyle(
-                                color: Colors.white38,
-                                fontSize: 11.5,
-                                letterSpacing: 0.2,
+                              const SizedBox(height: 3),
+                              Text(
+                                item.mediaType == 'tv'
+                                    ? 'TV · S${item.seasonNumber} E${item.episodeNumber}'
+                                    : 'Movie',
+                                style: const TextStyle(
+                                  color: Colors.white38,
+                                  fontSize: 11.5,
+                                  letterSpacing: 0.2,
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
-              ),
-            );
-          },
-        ),
-      );
-    });
+              );
+            },
+          ),
+        );
+      },
+    );
   }
 }
 
@@ -626,13 +648,14 @@ class _AvatarCircle extends StatelessWidget {
       height: size,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        gradient: avatarPath == null
-            ? const LinearGradient(
-                colors: [Color(0xFFEF0003), Color(0xFFC60002)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              )
-            : null,
+        gradient:
+            avatarPath == null
+                ? const LinearGradient(
+                  colors: [Color(0xFFEF0003), Color(0xFFC60002)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                )
+                : null,
         boxShadow: [
           BoxShadow(
             color: const Color(0xFFEF0003).withValues(alpha: 0.28),
@@ -647,34 +670,35 @@ class _AvatarCircle extends StatelessWidget {
       ),
       alignment: Alignment.center,
       child: ClipOval(
-        child: avatarPath != null
-            ? Image.network(
-                'https://image.tmdb.org/t/p/w300$avatarPath',
-                width: size,
-                height: size,
-                fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => _initialsLabel(),
-              )
-            : _initialsLabel(),
+        child:
+            avatarPath != null
+                ? Image.network(
+                  'https://image.tmdb.org/t/p/w300$avatarPath',
+                  width: size,
+                  height: size,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => _initialsLabel(),
+                )
+                : _initialsLabel(),
       ),
     );
   }
 
   Widget _initialsLabel() => Container(
-        width: size,
-        height: size,
-        alignment: Alignment.center,
-        color: const Color(0xFFEF0003),
-        child: Text(
-          initials,
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: size * 0.36,
-            fontWeight: FontWeight.w700,
-            letterSpacing: -0.5,
-          ),
-        ),
-      );
+    width: size,
+    height: size,
+    alignment: Alignment.center,
+    color: const Color(0xFFEF0003),
+    child: Text(
+      initials,
+      style: TextStyle(
+        color: Colors.white,
+        fontSize: size * 0.36,
+        fontWeight: FontWeight.w700,
+        letterSpacing: -0.5,
+      ),
+    ),
+  );
 }
 
 class _StatInline extends StatelessWidget {
@@ -792,9 +816,7 @@ class _EmptyState extends StatelessWidget {
         decoration: BoxDecoration(
           color: Colors.white.withValues(alpha: 0.025),
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: Colors.white.withValues(alpha: 0.05),
-          ),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
         ),
         child: Text(
           text,

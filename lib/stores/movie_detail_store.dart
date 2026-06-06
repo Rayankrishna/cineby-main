@@ -1,6 +1,6 @@
 import 'package:app_web_ui/models/movie_detail_model.dart';
 import 'package:app_web_ui/services/config.dart';
-import 'package:dio/dio.dart';
+import 'package:app_web_ui/services/tmdb_client.dart';
 import 'package:mobx/mobx.dart';
 
 part 'movie_detail_store.g.dart';
@@ -22,7 +22,8 @@ abstract class _MovieDetailStore with Store {
     isLoading = true;
     errorMessage = null;
     try {
-      final response = await Dio().get('$movieDetailUrl/$id$movieDetailParams');
+      final response =
+          await tmdbDio.get('$movieDetailUrl/$id$movieDetailParams');
       if (response.statusCode == 200) {
         movieDetail = MovieDetail.fromJson(response.data);
       } else {

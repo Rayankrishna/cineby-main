@@ -1,6 +1,7 @@
+import 'package:app_web_ui/services/config.dart';
+import 'package:app_web_ui/services/tmdb_client.dart';
 import 'package:app_web_ui/shared/squeeze_button.dart';
 import 'package:app_web_ui/stores/auth_store.dart';
-import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 
 class AvatarPickerSheet extends StatefulWidget {
@@ -20,7 +21,6 @@ class AvatarPickerSheet extends StatefulWidget {
 }
 
 class _AvatarPickerSheetState extends State<AvatarPickerSheet> {
-  final Dio _dio = Dio();
   List<_AvatarChoice> _choices = [];
   bool _loading = true;
   String? _error;
@@ -35,19 +35,20 @@ class _AvatarPickerSheetState extends State<AvatarPickerSheet> {
     try {
       final List<_AvatarChoice> all = [];
       for (final page in [1, 2]) {
-        final res = await _dio.get(
-          'https://db.videasy.net/3/person/popular',
-          queryParameters: {'language': 'en', 'page': page},
+        final res = await tmdbDio.get(
+          'https://api.themoviedb.org/3/person/popular',
+          queryParameters: {
+            'api_key': tmdbApiKey,
+            'language': 'en',
+            'page': page,
+          },
         );
         final results = (res.data['results'] as List<dynamic>);
         for (final p in results) {
           final m = p as Map<String, dynamic>;
           final path = m['profile_path'] as String?;
           if (path == null) continue;
-          all.add(_AvatarChoice(
-            path: path,
-            name: m['name'] as String? ?? '',
-          ));
+          all.add(_AvatarChoice(path: path, name: m['name'] as String? ?? ''));
         }
       }
       if (!mounted) return;
@@ -122,7 +123,9 @@ class _AvatarPickerSheetState extends State<AvatarPickerSheet> {
                         style: TextButton.styleFrom(
                           foregroundColor: Colors.white70,
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 6),
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
                         ),
                         onPressed: () async {
                           await authStore.setAvatarPath(null);
@@ -152,10 +155,7 @@ class _AvatarPickerSheetState extends State<AvatarPickerSheet> {
     }
     if (_error != null) {
       return Center(
-        child: Text(
-          _error!,
-          style: const TextStyle(color: Colors.white54),
-        ),
+        child: Text(_error!, style: const TextStyle(color: Colors.white54)),
       );
     }
     return GridView.builder(
@@ -185,9 +185,10 @@ class _AvatarPickerSheetState extends State<AvatarPickerSheet> {
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   border: Border.all(
-                    color: isSelected
-                        ? const Color(0xFFF7BB0D)
-                        : Colors.transparent,
+                    color:
+                        isSelected
+                            ? const Color(0xFFF7BB0D)
+                            : Colors.transparent,
                     width: 2.5,
                   ),
                 ),
@@ -198,13 +199,14 @@ class _AvatarPickerSheetState extends State<AvatarPickerSheet> {
                     child: Image.network(
                       'https://image.tmdb.org/t/p/w185${c.path}',
                       fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => Container(
-                        color: const Color(0xFF35343E),
-                        child: const Icon(
-                          Icons.person_rounded,
-                          color: Colors.white24,
-                        ),
-                      ),
+                      errorBuilder:
+                          (_, __, ___) => Container(
+                            color: const Color(0xFF35343E),
+                            child: const Icon(
+                              Icons.person_rounded,
+                              color: Colors.white24,
+                            ),
+                          ),
                     ),
                   ),
                 ),

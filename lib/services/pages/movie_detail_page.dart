@@ -1,9 +1,10 @@
-import 'package:app_web_ui/services/config.dart';
 import 'package:app_web_ui/services/page_transitions.dart';
 import 'package:app_web_ui/services/pages/webview.dart';
 import 'package:app_web_ui/services/responsive.dart';
+import 'package:app_web_ui/services/stream_servers.dart';
 import 'package:app_web_ui/services/toast.dart';
 import 'package:app_web_ui/shared/squeeze_button.dart';
+import 'package:app_web_ui/stores/download_store.dart';
 import 'package:app_web_ui/stores/history_store.dart';
 import 'package:app_web_ui/stores/movie_detail_store.dart';
 import 'package:app_web_ui/stores/watchlist_store.dart';
@@ -23,6 +24,7 @@ class _MovieDetailPageState extends State<MovieDetailPage> {
   final MovieDetailStore _store = MovieDetailStore();
   HistoryItem? _lastWatched;
   bool _lastWatchedLoaded = false;
+  bool _checkingSource = false;
 
   @override
   void initState() {
@@ -39,6 +41,47 @@ class _MovieDetailPageState extends State<MovieDetailPage> {
       _lastWatched = item;
       _lastWatchedLoaded = true;
     });
+  }
+
+  Future<void> _startDownload(dynamic movie) async {
+    // Probe for a reachable source first, then push the webview in
+    // downloadMode — extraction completes, the download kicks off in the
+    // background, and the route pops back to this page.
+    final server = await findReachableServer(
+      tmdbId: widget.movieId,
+      mediaType: 'movie',
+    );
+    if (!mounted) return;
+    if (server == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Color(0xFF1F1E26),
+          content: Text('No sources are reachable right now.'),
+        ),
+      );
+      return;
+    }
+    final url = server.buildUrl(widget.movieId, 'movie', null, null);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        backgroundColor: Color(0xFF1F1E26),
+        content: Text('Download started. Check Profile → Downloads.'),
+      ),
+    );
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => MyWidget(
+          url: url,
+          tmdbId: widget.movieId,
+          mediaType: 'movie',
+          title: movie.title,
+          posterPath: movie.posterPath,
+          backdropPath: movie.backdropPath,
+          downloadMode: true,
+        ),
+      ),
+    );
   }
 
   String _formatRuntime(int? minutes) {
@@ -76,14 +119,33 @@ class _MovieDetailPageState extends State<MovieDetailPage> {
                         color: Colors.red, size: 48),
                     const SizedBox(height: 16),
                     Text(
-                      _store.errorMessage!,
+                      'Couldn\'t reach the catalog. Check your connection and try again.',
                       style: const TextStyle(color: Colors.white70),
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 16),
-                    ElevatedButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text('Go Back'),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFEF0003),
+                            foregroundColor: Colors.white,
+                          ),
+                          onPressed: () =>
+                              _store.fetchMovieDetail(widget.movieId),
+                          icon: const Icon(Icons.refresh_rounded, size: 18),
+                          label: const Text('Try again'),
+                        ),
+                        const SizedBox(width: 12),
+                        TextButton(
+                          onPressed: () => Navigator.pop(context),
+                          child: const Text(
+                            'Go Back',
+                            style: TextStyle(color: Colors.white70),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -147,33 +209,61 @@ class _MovieDetailPageState extends State<MovieDetailPage> {
                       ),
                     ),
 
-                    // Watchlist toggle
+                    // Top-right action row: Download + Watchlist toggle.
                     Positioned(
                       top: MediaQuery.of(context).padding.top + 8,
                       right: 8,
-                      child: Observer(builder: (_) {
-                        final inList = watchlistStore.cachedContains(
-                              widget.movieId,
-                              'movie',
-                            ) ??
-                            false;
-                        return IconButton(
-                          icon: Icon(
-                            inList
-                                ? Icons.bookmark_rounded
-                                : Icons.bookmark_outline_rounded,
-                            color: inList
-                                ? const Color(0xFFF7BB0D)
-                                : Colors.white,
-                          ),
-                          onPressed: () => watchlistStore.toggle(
-                            tmdbId: widget.movieId,
-                            mediaType: 'movie',
-                            title: movie.title,
-                            posterPath: movie.posterPath,
-                          ),
-                        );
-                      }),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Observer(builder: (_) {
+                            final key = widget.movieId.toString();
+                            final downloading = downloadStore.active
+                                .any((a) => a.key == key);
+                            final done = downloadStore.completed
+                                .any((c) => c.tmdbId == widget.movieId);
+                            return IconButton(
+                              tooltip: done
+                                  ? 'Downloaded'
+                                  : (downloading ? 'Downloading…' : 'Download'),
+                              onPressed: downloading || done
+                                  ? null
+                                  : () => _startDownload(movie),
+                              icon: Icon(
+                                done
+                                    ? Icons.download_done_rounded
+                                    : Icons.download_rounded,
+                                color: done
+                                    ? const Color(0xFFEF0003)
+                                    : Colors.white,
+                              ),
+                            );
+                          }),
+                          Observer(builder: (_) {
+                            final inList = watchlistStore.cachedContains(
+                                  widget.movieId,
+                                  'movie',
+                                ) ??
+                                false;
+                            return IconButton(
+                              icon: Icon(
+                                inList
+                                    ? Icons.bookmark_rounded
+                                    : Icons.bookmark_outline_rounded,
+                                color: inList
+                                    ? const Color(0xFFF7BB0D)
+                                    : Colors.white,
+                              ),
+                              onPressed: () => watchlistStore.toggle(
+                                tmdbId: widget.movieId,
+                                mediaType: 'movie',
+                                title: movie.title,
+                                posterPath: movie.posterPath,
+                              ),
+                            );
+                          }),
+                        ],
+                      ),
                     ),
                   ],
                 ),
@@ -247,7 +337,31 @@ class _MovieDetailPageState extends State<MovieDetailPage> {
                                 ),
                               )
                             : SqueezeButton(
-                          onTap: () {
+                          onTap: _checkingSource
+                              ? null
+                              : () async {
+                            setState(() => _checkingSource = true);
+                            // Probe providers in order until one responds —
+                            // skips dead embeds before we even open the
+                            // headless extractor.
+                            final server = await findReachableServer(
+                              tmdbId: movie.id,
+                              mediaType: 'movie',
+                            );
+                            if (!mounted) return;
+                            setState(() => _checkingSource = false);
+                            if (server == null) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  backgroundColor: Color(0xFF1F1E26),
+                                  content: Text(
+                                    'No sources are reachable right now. '
+                                    'Check your connection and try again.',
+                                  ),
+                                ),
+                              );
+                              return;
+                            }
                             showPlayerHintToast();
                             final resumeSeconds =
                                 _lastWatched?.progressSeconds ?? 0;
@@ -262,15 +376,14 @@ class _MovieDetailPageState extends State<MovieDetailPage> {
                               posterPath: movie.posterPath,
                               backdropPath: movie.backdropPath,
                             );
-                            final progressParam = resumeSeconds > 0
-                                ? '?progress=$resumeSeconds'
-                                : '';
+                            final embedUrl = server.buildUrl(
+                                movie.id, 'movie', null, null);
+                            if (!mounted) return;
                             Navigator.push(
                               context,
                               MaterialPageRoute(
                                 builder: (_) => MyWidget(
-                                  url:
-                                      '$serverurl${movie.id}$progressParam',
+                                  url: embedUrl,
                                   tmdbId: movie.id,
                                   mediaType: 'movie',
                                   durationSeconds: movie.runtime != null
@@ -284,12 +397,6 @@ class _MovieDetailPageState extends State<MovieDetailPage> {
                               ),
                             ).then((_) {
                               _loadLastWatched();
-                              // Re-pull the full history list so Continue
-                              // Watching on home / profile / library reflects
-                              // the new entry — covers the case where the
-                              // optimistic local upsert missed (e.g. server
-                              // returned the item with different season/
-                              // episode null-ness than what we inserted).
                               historyStore.fetch();
                             });
                           },
@@ -299,27 +406,41 @@ class _MovieDetailPageState extends State<MovieDetailPage> {
                               color: Colors.white,
                               borderRadius: BorderRadius.circular(6),
                             ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  _lastWatched != null
-                                      ? Icons.play_circle_outline_rounded
-                                      : Icons.play_arrow,
-                                  size: 28,
-                                  color: Colors.black,
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  _lastWatched != null ? 'Resume' : 'Play',
-                                  style: const TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.black,
+                            child: _checkingSource
+                                ? const Center(
+                                    child: SizedBox(
+                                      width: 22,
+                                      height: 22,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2.4,
+                                        color: Color(0xFFEF0003),
+                                      ),
+                                    ),
+                                  )
+                                : Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(
+                                        _lastWatched != null
+                                            ? Icons
+                                                .play_circle_outline_rounded
+                                            : Icons.play_arrow,
+                                        size: 28,
+                                        color: Colors.black,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        _lastWatched != null
+                                            ? 'Resume'
+                                            : 'Play',
+                                        style: const TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.black,
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                ),
-                              ],
-                            ),
                           ),
                         ),
                       ),

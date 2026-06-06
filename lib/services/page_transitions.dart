@@ -58,10 +58,14 @@ class FadeInUp extends StatefulWidget {
 
 class _FadeInUpState extends State<FadeInUp>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _controller =
-      AnimationController(vsync: this, duration: widget.duration);
-  late final Animation<double> _opacity =
-      CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic);
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: widget.duration,
+  );
+  late final Animation<double> _opacity = CurvedAnimation(
+    parent: _controller,
+    curve: Curves.easeOutCubic,
+  );
   late final Animation<Offset> _slide = Tween<Offset>(
     begin: Offset(0, widget.offset / 100),
     end: Offset.zero,

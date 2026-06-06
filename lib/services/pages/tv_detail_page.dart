@@ -1,8 +1,8 @@
 import 'package:app_web_ui/models/tv_detail_model.dart';
-import 'package:app_web_ui/services/config.dart';
 import 'package:app_web_ui/services/page_transitions.dart';
 import 'package:app_web_ui/services/pages/webview.dart';
 import 'package:app_web_ui/services/responsive.dart';
+import 'package:app_web_ui/services/stream_servers.dart';
 import 'package:app_web_ui/services/toast.dart';
 import 'package:app_web_ui/shared/squeeze_button.dart';
 import 'package:app_web_ui/stores/history_store.dart';
@@ -24,6 +24,7 @@ class _TvDetailPageState extends State<TvDetailPage> {
   final TvDetailStore _store = TvDetailStore();
   HistoryItem? _lastWatched;
   bool _lastWatchedLoaded = false;
+  bool _checkingSource = false;
 
   @override
   void initState() {
@@ -47,13 +48,12 @@ class _TvDetailPageState extends State<TvDetailPage> {
     return date.split('-').first;
   }
 
-  void _playEpisode(
+  Future<void> _playEpisode(
     int season,
     int episode, {
     int progressSeconds = 0,
     int? runtimeMinutes,
-  }) {
-    showPlayerHintToast();
+  }) async {
     final tv = _store.tvDetail;
     // Look up episode runtime from the loaded season if not provided.
     final ep = _store.selectedSeason?.episodes.firstWhere(
@@ -63,6 +63,31 @@ class _TvDetailPageState extends State<TvDetailPage> {
     final runtime = runtimeMinutes ?? ep?.runtime;
     final durationSeconds = (runtime != null && runtime > 0) ? runtime * 60 : null;
 
+    // Probe providers in order until one responds — skips dead embeds before
+    // we even open the headless extractor.
+    setState(() => _checkingSource = true);
+    final server = await findReachableServer(
+      tmdbId: widget.tvId,
+      mediaType: 'tv',
+      seasonNumber: season,
+      episodeNumber: episode,
+    );
+    if (!mounted) return;
+    setState(() => _checkingSource = false);
+    if (server == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Color(0xFF1F1E26),
+          content: Text(
+            'No sources are reachable right now. '
+            'Check your connection and try again.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    showPlayerHintToast();
     historyStore.record(
       tmdbId: widget.tvId,
       mediaType: 'tv',
@@ -74,10 +99,8 @@ class _TvDetailPageState extends State<TvDetailPage> {
       posterPath: tv?.posterPath,
       backdropPath: tv?.backdropPath,
     );
-    final progressParam = progressSeconds > 0 ? '&progress=$progressSeconds' : '';
-    final url =
-        '$tvServerurl${widget.tvId}/$season/$episode'
-        '?episodeSelector=true&nextEpisode=true&autoplayNextEpisode=true$progressParam';
+    final url = server.buildUrl(widget.tvId, 'tv', season, episode);
+    if (!mounted) return;
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -125,15 +148,34 @@ class _TvDetailPageState extends State<TvDetailPage> {
                       size: 48,
                     ),
                     const SizedBox(height: 16),
-                    Text(
-                      _store.errorMessage!,
-                      style: const TextStyle(color: Colors.white70),
+                    const Text(
+                      'Couldn\'t reach the catalog. Check your connection and try again.',
+                      style: TextStyle(color: Colors.white70),
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 16),
-                    ElevatedButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text('Go Back'),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFEF0003),
+                            foregroundColor: Colors.white,
+                          ),
+                          onPressed: () =>
+                              _store.fetchTvDetail(widget.tvId),
+                          icon: const Icon(Icons.refresh_rounded, size: 18),
+                          label: const Text('Try again'),
+                        ),
+                        const SizedBox(width: 12),
+                        TextButton(
+                          onPressed: () => Navigator.pop(context),
+                          child: const Text(
+                            'Go Back',
+                            style: TextStyle(color: Colors.white70),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -282,7 +324,9 @@ class _TvDetailPageState extends State<TvDetailPage> {
                     ),
                   )
                 : SqueezeButton(
-              onTap: () {
+              onTap: _checkingSource
+                  ? null
+                  : () {
                 if (_lastWatched != null) {
                   _playEpisode(
                     _lastWatched!.seasonNumber ?? 1,
@@ -302,34 +346,45 @@ class _TvDetailPageState extends State<TvDetailPage> {
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(6),
                 ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      _lastWatched != null
-                          ? Icons.play_circle_outline_rounded
-                          : Icons.play_arrow,
-                      size: 28,
-                      color: Colors.black,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      _lastWatched != null
-                          ? 'Resume S${_lastWatched!.seasonNumber} · E${_lastWatched!.episodeNumber}'
-                          : (() {
-                              final s = tv.seasons.isNotEmpty
-                                  ? tv.seasons.first.seasonNumber
-                                  : 1;
-                              return 'Play S$s · E1';
-                            })(),
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black,
+                child: _checkingSource
+                    ? const Center(
+                        child: SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.4,
+                            color: Color(0xFFEF0003),
+                          ),
+                        ),
+                      )
+                    : Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            _lastWatched != null
+                                ? Icons.play_circle_outline_rounded
+                                : Icons.play_arrow,
+                            size: 28,
+                            color: Colors.black,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            _lastWatched != null
+                                ? 'Resume S${_lastWatched!.seasonNumber} · E${_lastWatched!.episodeNumber}'
+                                : (() {
+                                    final s = tv.seasons.isNotEmpty
+                                        ? tv.seasons.first.seasonNumber
+                                        : 1;
+                                    return 'Play S$s · E1';
+                                  })(),
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.black,
+                            ),
+                          ),
+                        ],
                       ),
-                    ),
-                  ],
-                ),
               ),
             ),
           ),
@@ -425,6 +480,16 @@ class _TvDetailPageState extends State<TvDetailPage> {
   }
 
   Widget _buildSeasonPicker(TvDetail tv) {
+    // Single-season shows: render a static chip instead of a dropdown — no
+    // point making it tappable when there's nothing to pick.
+    final singleSeason = tv.seasons.length <= 1;
+    final currentSeason = tv.seasons.firstWhere(
+      (s) => s.seasonNumber == _store.selectedSeasonNumber,
+      orElse: () => tv.seasons.isNotEmpty
+          ? tv.seasons.first
+          : tv.seasons.first, // safe: only called when seasons isn't empty
+    );
+
     return CenteredMaxWidth(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
       child: Row(
@@ -438,47 +503,86 @@ class _TvDetailPageState extends State<TvDetailPage> {
             ),
           ),
           const Spacer(),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            decoration: BoxDecoration(
-              color: const Color(0xFF35343E),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: 0.08),
-                width: 1,
-              ),
-            ),
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<int>(
-                value: _store.selectedSeasonNumber,
-                dropdownColor: const Color(0xFF35343E),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
+          // Constrained so a long season name (e.g. "Season 1: The Original
+          // Sin") truncates with ellipsis instead of pushing the row off
+          // screen.
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 220),
+            child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF35343E),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.08),
+                    width: 1,
+                  ),
                 ),
-                icon: const Icon(
-                  Icons.keyboard_arrow_down_rounded,
-                  color: Colors.white70,
-                ),
-                items: tv.seasons
-                    .map(
-                      (s) => DropdownMenuItem<int>(
-                        value: s.seasonNumber,
+                child: singleSeason
+                    ? Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
                         child: Text(
-                          s.name ?? 'Season ${s.seasonNumber}',
+                          currentSeason.name ??
+                              'Season ${currentSeason.seasonNumber}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      )
+                    : DropdownButtonHideUnderline(
+                        child: DropdownButton<int>(
+                          value: _store.selectedSeasonNumber,
+                          dropdownColor: const Color(0xFF35343E),
+                          isExpanded: true,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          icon: const Icon(
+                            Icons.keyboard_arrow_down_rounded,
+                            color: Colors.white70,
+                          ),
+                          selectedItemBuilder: (_) => tv.seasons
+                              .map((s) => Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: Text(
+                                      s.name ?? 'Season ${s.seasonNumber}',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ))
+                              .toList(),
+                          items: tv.seasons
+                              .map(
+                                (s) => DropdownMenuItem<int>(
+                                  value: s.seasonNumber,
+                                  child: Text(
+                                    s.name ?? 'Season ${s.seasonNumber}',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (value) {
+                            if (value != null) {
+                              _store.fetchSeason(widget.tvId, value);
+                            }
+                          },
                         ),
                       ),
-                    )
-                    .toList(),
-                onChanged: (value) {
-                  if (value != null) {
-                    _store.fetchSeason(widget.tvId, value);
-                  }
-                },
               ),
             ),
-          ),
         ],
       ),
     );

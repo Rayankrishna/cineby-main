@@ -1,6 +1,6 @@
 import 'package:app_web_ui/models/search_model.dart';
 import 'package:app_web_ui/services/config.dart';
-import 'package:dio/dio.dart';
+import 'package:app_web_ui/services/tmdb_client.dart';
 import 'package:mobx/mobx.dart';
 
 part 'search_store.g.dart';
@@ -47,7 +47,7 @@ abstract class _SearchStore with Store {
     isLoading = true;
     errorMessage = null;
     try {
-      final response = await Dio().get('$searchUrl$query');
+      final response = await tmdbDio.get('$searchUrl$query');
       if (response.statusCode == 200) {
         final searchResponse = SearchResponse.fromJson(response.data);
         searchResults = ObservableList.of(searchResponse.results);
@@ -66,7 +66,7 @@ abstract class _SearchStore with Store {
     isLoading = true;
     errorMessage = null;
     try {
-      final response = await Dio().get(homeUrl);
+      final response = await tmdbDio.get(homeUrl);
       if (response.statusCode == 200) {
         final searchResponse = SearchResponse.fromJson(response.data);
         trendingResults = ObservableList.of(searchResponse.results);
@@ -82,7 +82,7 @@ abstract class _SearchStore with Store {
 
   Future<List<SearchResult>> _fetchList(String url, {String? mediaType}) async {
     try {
-      final res = await Dio().get(url);
+      final res = await tmdbDio.get(url);
       if (res.statusCode != 200) return const [];
       final list = SearchResponse.fromJson(res.data).results;
       if (mediaType == null) return list;

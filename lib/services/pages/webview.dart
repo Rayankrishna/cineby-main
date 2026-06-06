@@ -3,6 +3,9 @@ import 'dart:collection';
 import 'dart:io' show Platform;
 import 'package:app_web_ui/services/config.dart';
 import 'package:app_web_ui/services/pages/native_player.dart';
+import 'package:app_web_ui/services/stream_servers.dart';
+import 'package:app_web_ui/shared/squeeze_button.dart';
+import 'package:app_web_ui/stores/download_store.dart';
 import 'package:app_web_ui/stores/history_store.dart';
 
 import 'package:flutter/material.dart';
@@ -22,6 +25,10 @@ class MyWidget extends StatefulWidget {
   final String? title;
   final String? posterPath;
   final String? backdropPath;
+  /// When true, extraction kicks off a background download via
+  /// DownloadStore.start(...) instead of opening the native player. The
+  /// route pops back to the caller as soon as the URL is captured.
+  final bool downloadMode;
 
   const MyWidget({
     super.key,
@@ -35,6 +42,7 @@ class MyWidget extends StatefulWidget {
     this.title,
     this.posterPath,
     this.backdropPath,
+    this.downloadMode = false,
   });
 
   @override
@@ -357,6 +365,28 @@ class _MyWidgetState extends State<MyWidget> {
     final url = _streamUrl;
     if (url == null || _handedOff) return;
     _handedOff = true;
+
+    // Download mode — kick off the background download and pop back instead
+    // of opening the player. The DownloadStore handles progress + completion;
+    // the user can monitor it from the Downloads page.
+    if (widget.downloadMode) {
+      if (widget.tmdbId != null && widget.mediaType != null) {
+        downloadStore.start(
+          tmdbId: widget.tmdbId!,
+          mediaType: widget.mediaType!,
+          url: url,
+          headers: Map<String, String>.from(_streamHeaders),
+          seasonNumber: widget.seasonNumber,
+          episodeNumber: widget.episodeNumber,
+          title: widget.title,
+          posterPath: widget.posterPath,
+          backdropPath: widget.backdropPath,
+        );
+      }
+      Navigator.of(context).pop();
+      return;
+    }
+
     // Zero-duration transition. The default MaterialPageRoute slide-up
     // animates both old + new pages live for ~300ms, which contends with
     // the video controller's initialize() on the main thread and makes
@@ -421,6 +451,118 @@ class _MyWidgetState extends State<MyWidget> {
     );
   }
 
+  void _switchSourceFromLoading(StreamServer server) {
+    if (widget.tmdbId == null || widget.mediaType == null) {
+      Navigator.of(context).pop();
+      return;
+    }
+    Navigator.of(context).pop(); // close the bottom sheet
+    final newUrl = server.buildUrl(
+      widget.tmdbId!,
+      widget.mediaType!,
+      widget.seasonNumber,
+      widget.episodeNumber,
+    );
+    // pushReplacement so the headless extractor on this page is disposed and
+    // a fresh one boots with the new embed URL.
+    Navigator.of(context).pushReplacement(
+      PageRouteBuilder(
+        transitionDuration: Duration.zero,
+        reverseTransitionDuration: const Duration(milliseconds: 150),
+        pageBuilder: (_, __, ___) => MyWidget(
+          url: newUrl,
+          tmdbId: widget.tmdbId,
+          mediaType: widget.mediaType,
+          seasonNumber: widget.seasonNumber,
+          episodeNumber: widget.episodeNumber,
+          durationSeconds: widget.durationSeconds,
+          initialProgressSeconds: widget.initialProgressSeconds,
+          title: widget.title,
+          posterPath: widget.posterPath,
+          backdropPath: widget.backdropPath,
+        ),
+      ),
+    );
+  }
+
+  void _showLoadingSourcePicker() {
+    final currentServer =
+        streamServerForUrl(_currentUrl);
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF1F1E26),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(20, 12, 20, 8),
+                child: Row(
+                  children: [
+                    Icon(Icons.dns_rounded,
+                        color: Color(0xFFEF0003), size: 22),
+                    SizedBox(width: 10),
+                    Text(
+                      'Switch source',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              for (final s in streamServers)
+                InkWell(
+                  onTap: () => _switchSourceFromLoading(s),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20, vertical: 12),
+                    child: Row(
+                      children: [
+                        Icon(Icons.play_circle_outline_rounded,
+                            color: s == currentServer
+                                ? const Color(0xFFEF0003)
+                                : Colors.white70,
+                            size: 20),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Text(
+                            s.name,
+                            style: TextStyle(
+                              color: s == currentServer
+                                  ? const Color(0xFFEF0003)
+                                  : Colors.white,
+                              fontSize: 14.5,
+                              fontWeight: s == currentServer
+                                  ? FontWeight.w600
+                                  : FontWeight.w400,
+                            ),
+                          ),
+                        ),
+                        if (s == currentServer)
+                          const Icon(Icons.check_rounded,
+                              color: Color(0xFFEF0003), size: 18),
+                      ],
+                    ),
+                  ),
+                ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     // No platform view in the tree — the headless extractor runs in the
@@ -429,29 +571,81 @@ class _MyWidgetState extends State<MyWidget> {
     return Scaffold(
       backgroundColor: Colors.black,
       body: SafeArea(
-        child: Center(
-          child: RepaintBoundary(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const SizedBox(
-                  width: 32,
-                  height: 32,
-                  child: CircularProgressIndicator(
-                    color: Color(0xFFEF0003),
-                    strokeWidth: 2.5,
-                  ),
+        child: Stack(
+          children: [
+            Center(
+              child: RepaintBoundary(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SizedBox(
+                      width: 32,
+                      height: 32,
+                      child: CircularProgressIndicator(
+                        color: Color(0xFFEF0003),
+                        strokeWidth: 2.5,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      _streamUrl == null
+                          ? 'Loading stream…'
+                          : 'Preparing player…',
+                      style: const TextStyle(color: Colors.white70),
+                    ),
+                    const SizedBox(height: 28),
+                    // Mid-flight source switcher — taps cancel the current
+                    // extraction and restart on a different provider. Uses
+                    // SqueezeButton (the app's standard tap widget) instead
+                    // of TextButton because TextButton inside this Stack +
+                    // Center + RepaintBoundary chain was failing to register
+                    // taps on some devices.
+                    SqueezeButton(
+                      onTap: _showLoadingSourcePicker,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 22, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(100),
+                          border: Border.all(
+                            color: const Color(0xFFEF0003)
+                                .withValues(alpha: 0.55),
+                            width: 1.2,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: const [
+                            Icon(Icons.dns_rounded,
+                                color: Color(0xFFEF0003), size: 18),
+                            SizedBox(width: 8),
+                            Text(
+                              'Switch source',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 16),
-                Text(
-                  _streamUrl == null
-                      ? 'Loading stream…'
-                      : 'Preparing player…',
-                  style: const TextStyle(color: Colors.white70),
-                ),
-              ],
+              ),
             ),
-          ),
+            // Back chevron — escape hatch if all sources hang.
+            Positioned(
+              top: 8,
+              left: 8,
+              child: IconButton(
+                icon: const Icon(Icons.arrow_back, color: Colors.white),
+                onPressed: () => Navigator.of(context).maybePop(),
+              ),
+            ),
+          ],
         ),
       ),
     );

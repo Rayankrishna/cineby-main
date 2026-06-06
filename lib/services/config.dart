@@ -4,24 +4,45 @@
 
 import 'package:dio/dio.dart';
 
-const String serverurl = 'https://player.videasy.net/movie/';
+// videasy.net is dead (NXDOMAIN). Catalog metadata now comes straight from
+// TMDB v3 — same paths as before, just a different host + a required api_key.
+// Override the key at build time with --dart-define=TMDB_API_KEY=... to keep
+// it out of source.
+const String tmdbApiKey = String.fromEnvironment(
+  'TMDB_API_KEY',
+  defaultValue: '480d0e6b81cc6e4505b0da63dabecf14',
+);
+const String _tmdbBase = 'https://api.themoviedb.org/3';
+
+// Playback embed defaults — 111Movies is the current default (Videasy is
+// dead). The full provider list lives in lib/services/stream_servers.dart;
+// detail pages should prefer streamServers.first.buildUrl(...) over building
+// URLs from these constants directly.
+const String serverurl = 'https://111movies.net/movie/';
+const String tvServerurl = 'https://111movies.net/tv/';
 
 const String searchUrl =
-    'https://db.videasy.net/3/search/multi?language=en&page=1&query=';
+    '$_tmdbBase/search/multi?api_key=$tmdbApiKey&language=en&page=1&query=';
 
 const String homeUrl =
-    "https://db.videasy.net/3/trending/all/day?region=US&language=en";
+    '$_tmdbBase/trending/all/day?api_key=$tmdbApiKey&language=en';
 
 const String topMoviesUrl =
-    'https://db.videasy.net/3/discover/movie?sort_by=popularity.desc&language=en&page=1';
+    '$_tmdbBase/discover/movie?api_key=$tmdbApiKey&sort_by=popularity.desc&language=en&page=1';
 const String topSeriesUrl =
-    'https://db.videasy.net/3/discover/tv?sort_by=popularity.desc&language=en&page=1';
+    '$_tmdbBase/discover/tv?api_key=$tmdbApiKey&sort_by=popularity.desc&language=en&page=1';
 const String topAnimeUrl =
-    'https://db.videasy.net/3/discover/tv?with_genres=16&with_origin_country=JP|CN&sort_by=popularity.desc&language=en&page=1';
+    '$_tmdbBase/discover/tv?api_key=$tmdbApiKey&with_genres=16&with_origin_country=JP|CN&sort_by=popularity.desc&language=en&page=1';
 
-const String movieDetailUrl = 'https://db.videasy.net/3/movie';
+const String movieDetailUrl = '$_tmdbBase/movie';
 const String movieDetailParams =
-    '?append_to_response=credits,external_ids,videos&language=en';
+    '?api_key=$tmdbApiKey&append_to_response=credits,external_ids,videos&language=en';
+
+const String tvDetailUrl = '$_tmdbBase/tv';
+const String tvDetailParams =
+    '?api_key=$tmdbApiKey&append_to_response=credits,external_ids,videos&language=en';
+const String tvSeasonUrl = '$_tmdbBase/tv';
+const String tvSeasonParams = '?api_key=$tmdbApiKey&language=en';
 
 // Reelix backend API.
 // Production (Vercel): https://cineby-main.vercel.app/api/v1
@@ -30,13 +51,6 @@ const String movieDetailParams =
 //   iOS simulator    → http://localhost:4000/api/v1
 //   Physical device  → http://<your-mac-LAN-ip>:4000/api/v1
 const String apiBaseUrl = 'https://cineby-main.vercel.app/api/v1';
-
-const String tvServerurl = 'https://player.videasy.net/tv/';
-const String tvDetailUrl = 'https://db.videasy.net/3/tv';
-const String tvDetailParams =
-    '?append_to_response=credits,external_ids,videos&language=en';
-const String tvSeasonUrl = 'https://db.videasy.net/3/tv';
-const String tvSeasonParams = '?language=en';
 
 const String authServiceUrl = serverurl;
 

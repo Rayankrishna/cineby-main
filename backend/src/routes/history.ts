@@ -12,6 +12,32 @@ const router = Router();
 router.use(requireAuth);
 
 const COMPLETED_RATIO = 0.9;
+// Per-user retention cap. After each save we delete history rows past the
+// newest N. Reduces row growth and keeps queries fast — Continue Watching
+// and full history both read from this table.
+const HISTORY_KEEP_LATEST = 5;
+
+/// Delete all history rows for a user past the newest [HISTORY_KEEP_LATEST].
+/// Fire-and-forget — callers should not await this on the hot path.
+async function trimHistory(userId: string) {
+  try {
+    const keep = await prisma.watchHistoryItem.findMany({
+      where: { userId },
+      orderBy: { updatedAt: 'desc' },
+      take: HISTORY_KEEP_LATEST,
+      select: { id: true },
+    });
+    if (keep.length < HISTORY_KEEP_LATEST) return;
+    await prisma.watchHistoryItem.deleteMany({
+      where: {
+        userId,
+        id: { notIn: keep.map((k) => k.id) },
+      },
+    });
+  } catch (_) {
+    // Best-effort. Don't surface trim errors to the user.
+  }
+}
 
 router.post('/', async (req, res, next) => {
   try {
@@ -66,7 +92,10 @@ router.post('/', async (req, res, next) => {
           },
         });
 
+    // Reply first, then trim in the background — keeps the upsert hot path
+    // snappy. If the trim fails it's logged inside and silently swallowed.
     res.status(200).json(item);
+    trimHistory(userId);
   } catch (e) {
     next(e);
   }

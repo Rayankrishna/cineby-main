@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:app_web_ui/services/pages/webview.dart';
 import 'package:app_web_ui/services/stream_servers.dart';
@@ -23,6 +24,12 @@ class NativePlayerPage extends StatefulWidget {
   final int initialProgressSeconds;
   final String? posterPath;
   final String? backdropPath;
+  /// When set, playback reads from a local file instead of fetching via
+  /// network — used by the Downloads page to play offline copies.
+  /// For MP4 files: VideoPlayerController.file. For local HLS (.m3u8 with
+  /// neighbouring .ts segments): VideoPlayerController.networkUrl with a
+  /// file:// URI (ExoPlayer handles it natively).
+  final String? localFilePath;
 
   const NativePlayerPage({
     super.key,
@@ -39,6 +46,7 @@ class NativePlayerPage extends StatefulWidget {
     this.initialProgressSeconds = 0,
     this.posterPath,
     this.backdropPath,
+    this.localFilePath,
   });
 
   @override
@@ -339,10 +347,23 @@ class _NativePlayerPageState extends State<NativePlayerPage> {
 
   Future<void> _init() async {
     try {
-      final controller = VideoPlayerController.networkUrl(
-        Uri.parse(widget.videoUrl),
-        httpHeaders: widget.httpHeaders,
-      );
+      // Local file → use VideoPlayerController.file for MP4, networkUrl with
+      // a file:// URI for HLS (ExoPlayer recognises the manifest extension).
+      // Otherwise fall back to the network constructor with captured headers.
+      VideoPlayerController controller;
+      final local = widget.localFilePath;
+      if (local != null) {
+        if (local.endsWith('.m3u8')) {
+          controller = VideoPlayerController.networkUrl(Uri.file(local));
+        } else {
+          controller = VideoPlayerController.file(File(local));
+        }
+      } else {
+        controller = VideoPlayerController.networkUrl(
+          Uri.parse(widget.videoUrl),
+          httpHeaders: widget.httpHeaders,
+        );
+      }
       await controller.initialize();
 
       if (widget.subtitleUrl != null && widget.subtitleUrl!.isNotEmpty) {
