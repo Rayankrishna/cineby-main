@@ -1,4 +1,4 @@
-package com.example.app_web_ui
+package com.reelix.app
 
 import io.flutter.embedding.android.FlutterActivity
 

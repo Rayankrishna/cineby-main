@@ -332,9 +332,21 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 
+  Future<void> _refreshFeed() async {
+    await Future.wait([
+      _searchStore.fetchHomeFeed(),
+      historyStore.fetch(),
+    ]);
+  }
+
   Widget _buildFeed() {
-    return ListView(
+    return RefreshIndicator(
+      color: const Color(0xFFEF0003),
+      backgroundColor: const Color(0xFF1F1E26),
+      onRefresh: _refreshFeed,
+      child: ListView(
       padding: const EdgeInsets.only(top: 6, bottom: 120),
+      physics: const AlwaysScrollableScrollPhysics(),
       children: [
         Observer(
           builder: (_) {
@@ -414,6 +426,7 @@ class _MyHomePageState extends State<MyHomePage> {
           ],
         ),
       ],
+      ),
     );
   }
 }

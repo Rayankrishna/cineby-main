@@ -25,6 +25,13 @@ class _ProfilePageState extends State<ProfilePage> {
     watchlistStore.fetch();
   }
 
+  Future<void> _refresh() async {
+    await Future.wait([
+      historyStore.fetch(),
+      watchlistStore.fetch(),
+    ]);
+  }
+
   void _openDetail(int tmdbId, String mediaType) {
     Navigator.push(
       context,
@@ -59,43 +66,49 @@ class _ProfilePageState extends State<ProfilePage> {
               .where((h) => !h.completed)
               .toList();
 
-          return CustomScrollView(
-            slivers: [
-              SliverToBoxAdapter(child: _buildHero()),
-              SliverToBoxAdapter(child: _buildStatLine(inProgress.length)),
-              if (inProgress.isNotEmpty) ...[
+          return RefreshIndicator(
+            color: const Color(0xFFEF0003),
+            backgroundColor: const Color(0xFF1F1E26),
+            onRefresh: _refresh,
+            child: CustomScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              slivers: [
+                SliverToBoxAdapter(child: _buildHero()),
+                SliverToBoxAdapter(child: _buildStatLine(inProgress.length)),
+                if (inProgress.isNotEmpty) ...[
+                  SliverToBoxAdapter(
+                    child: _SectionHeader(
+                      title: 'Continue Watching',
+                      subtitle: 'Pick up where you left off',
+                    ),
+                  ),
+                  SliverToBoxAdapter(child: _continueWatchingRail(inProgress)),
+                ],
                 SliverToBoxAdapter(
                   child: _SectionHeader(
-                    title: 'Continue Watching',
-                    subtitle: 'Pick up where you left off',
+                    title: 'My Watchlist',
+                    subtitle: watchlistStore.items.isEmpty
+                        ? 'Nothing saved yet'
+                        : '${watchlistStore.items.length} '
+                            '${watchlistStore.items.length == 1 ? 'title' : 'titles'} '
+                            'to watch',
                   ),
                 ),
-                SliverToBoxAdapter(child: _continueWatchingRail(inProgress)),
+                _watchlistSliver(),
+                SliverToBoxAdapter(
+                  child: _SectionHeader(
+                    title: 'History',
+                    subtitle: historyStore.items.isEmpty
+                        ? 'Nothing yet'
+                        : '${historyStore.items.length} '
+                            'recently watched',
+                  ),
+                ),
+                _historySliver(),
+                SliverToBoxAdapter(child: _buildAccountSection()),
+                const SliverToBoxAdapter(child: SizedBox(height: 120)),
               ],
-              SliverToBoxAdapter(
-                child: _SectionHeader(
-                  title: 'My Watchlist',
-                  subtitle: watchlistStore.items.isEmpty
-                      ? 'Nothing saved yet'
-                      : '${watchlistStore.items.length} '
-                          '${watchlistStore.items.length == 1 ? 'title' : 'titles'} '
-                          'to watch',
-                ),
-              ),
-              _watchlistSliver(),
-              SliverToBoxAdapter(
-                child: _SectionHeader(
-                  title: 'History',
-                  subtitle: historyStore.items.isEmpty
-                      ? 'Nothing yet'
-                      : '${historyStore.items.length} '
-                          'recently watched',
-                ),
-              ),
-              _historySliver(),
-              SliverToBoxAdapter(child: _buildAccountSection()),
-              const SliverToBoxAdapter(child: SizedBox(height: 120)),
-            ],
+            ),
           );
         },
       ),
