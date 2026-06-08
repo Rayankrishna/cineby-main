@@ -150,7 +150,19 @@ abstract class _SearchStore with Store {
     try {
       final res = await tmdbDio.get(url);
       if (res.statusCode != 200) return const [];
-      final list = SearchResponse.fromJson(res.data).results;
+      var list = SearchResponse.fromJson(res.data).results;
+
+      // Drop unreleased / dateless rows so the home feed only ever shows
+      // things the user can actually watch right now.
+      final now = DateTime.now();
+      list = list.where((r) {
+        final date = r.releaseDate ?? r.firstAirDate;
+        if (date == null || date.isEmpty) return false;
+        final parsed = DateTime.tryParse(date);
+        if (parsed == null) return false;
+        return !parsed.isAfter(now);
+      }).toList();
+
       if (mediaType == null) return list;
       // /discover endpoints don't include media_type — patch it in so home
       // navigation can route movies vs TV correctly.

@@ -1,7 +1,9 @@
 import 'package:app_web_ui/services/pages/downloads_page.dart';
 import 'package:app_web_ui/services/pages/home.dart';
 import 'package:app_web_ui/services/pages/profile_page.dart';
+import 'package:bot_toast/bot_toast.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show SystemNavigator;
 
 class RootShell extends StatefulWidget {
   const RootShell({super.key});
@@ -12,10 +14,37 @@ class RootShell extends StatefulWidget {
 
 class _RootShellState extends State<RootShell> {
   int _index = 0;
+  // Timestamp of the last back-press that we caught at the root. If the user
+  // presses again within `_exitWindow`, we exit. Otherwise we show a toast
+  // and reset the counter.
+  DateTime? _lastBackPress;
+  static const Duration _exitWindow = Duration(seconds: 2);
+
+  // Called by Flutter when the system back gesture is invoked AND the route
+  // can't pop further (we set canPop: false so it always arrives here).
+  void _onBack(bool didPop, Object? _) {
+    if (didPop) return;
+    final now = DateTime.now();
+    if (_lastBackPress == null ||
+        now.difference(_lastBackPress!) > _exitWindow) {
+      _lastBackPress = now;
+      BotToast.showText(
+        text: 'Tap back again to exit',
+        align: const Alignment(0, 0.8),
+        duration: _exitWindow,
+      );
+      return;
+    }
+    // Within the window — actually leave the app.
+    SystemNavigator.pop();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: _onBack,
+      child: Scaffold(
       backgroundColor: const Color(0xFF18181A),
       body: Stack(
         children: [
@@ -39,13 +68,19 @@ class _RootShellState extends State<RootShell> {
                 children: [
                   _FloatingNav(
                     index: _index,
-                    onChanged: (i) => setState(() => _index = i),
+                    onChanged: (i) => setState(() {
+                      _index = i;
+                      // Switching tabs resets the back-to-exit counter
+                      // exactly as the user requested.
+                      _lastBackPress = null;
+                    }),
                   ),
                 ],
               ),
             ),
           ),
         ],
+      ),
       ),
     );
   }

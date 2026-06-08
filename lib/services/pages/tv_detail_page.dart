@@ -753,11 +753,34 @@ class _TvDetailPageState extends State<TvDetailPage> {
       );
     }
 
+    // Drop episodes that haven't aired yet — TMDB lists future episodes in
+    // the season payload but they obviously can't be played.
+    final now = DateTime.now();
+    final aired = season.episodes.where((ep) {
+      final d = ep.airDate;
+      if (d == null || d.isEmpty) return false;
+      final parsed = DateTime.tryParse(d);
+      if (parsed == null) return false;
+      return !parsed.isAfter(now);
+    }).toList();
+
+    if (aired.isEmpty) {
+      return const SliverToBoxAdapter(
+        child: Padding(
+          padding: EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+          child: Text(
+            'No episodes have aired yet',
+            style: TextStyle(color: Colors.white54),
+          ),
+        ),
+      );
+    }
+
     return SliverList.separated(
-      itemCount: season.episodes.length,
+      itemCount: aired.length,
       separatorBuilder: (_, __) => const SizedBox(height: 12),
       itemBuilder: (context, index) {
-        final ep = season.episodes[index];
+        final ep = aired[index];
         return CenteredMaxWidth(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: _EpisodeTile(

@@ -52,6 +52,11 @@ class DownloadService {
   final Dio _dio = Dio();
 
   Future<Directory> _downloadsRoot() async {
+    // Use the app-private documents directory (`/data/data/<pkg>/app_flutter/`
+    // on Android) on purpose — files there aren't visible to file managers
+    // or other apps without root, and they're wiped automatically on
+    // uninstall. That's the desired behaviour: downloads are for the user
+    // inside the app, not for sideloading out.
     final docs = await getApplicationDocumentsDirectory();
     final dir = Directory('${docs.path}/downloads');
     if (!await dir.exists()) await dir.create(recursive: true);
