@@ -2,6 +2,7 @@ import 'package:app_web_ui/models/tv_detail_model.dart';
 import 'package:app_web_ui/services/page_transitions.dart';
 import 'package:app_web_ui/services/pages/webview.dart';
 import 'package:app_web_ui/services/responsive.dart';
+import 'package:app_web_ui/services/server_vote_service.dart';
 import 'package:app_web_ui/services/stream_servers.dart';
 import 'package:app_web_ui/services/toast.dart';
 import 'package:app_web_ui/shared/squeeze_button.dart';
@@ -112,6 +113,23 @@ class _TvDetailPageState extends State<TvDetailPage> {
     _store.fetchTvDetail(widget.tvId);
     watchlistStore.checkContains(widget.tvId, 'tv');
     _loadLastWatched();
+    _loadBestServer();
+  }
+
+  /// Ask the backend which provider has been working best for this show
+  /// and pre-select it as the default Source. Falls back to the local
+  /// default if there are no votes yet.
+  Future<void> _loadBestServer() async {
+    final name = await ServerVoteService.instance.bestServerName(
+      tmdbId: widget.tvId,
+      mediaType: 'tv',
+    );
+    if (!mounted || name == null) return;
+    final match = streamServers
+        .where((s) => s.name == name)
+        .cast<StreamServer?>()
+        .firstWhere((s) => s != null, orElse: () => null);
+    if (match != null) setState(() => _selectedServer = match);
   }
 
   Future<void> _loadLastWatched() async {

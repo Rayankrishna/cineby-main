@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:app_web_ui/services/pages/webview.dart';
+import 'package:app_web_ui/services/server_vote_service.dart';
 import 'package:app_web_ui/services/stream_servers.dart';
 import 'package:app_web_ui/stores/history_store.dart';
 import 'package:flutter/material.dart';
@@ -382,6 +383,11 @@ class _NativePlayerPageState extends State<NativePlayerPage> {
       }
       await controller.play();
 
+      // Tell the backend this source worked for this title. The global
+      // ranking it builds is what other users' detail pages will use to
+      // pre-select the most reliable provider.
+      _recordServerSuccess();
+
       _saveTimer = Timer.periodic(const Duration(seconds: 10), (_) => _saveProgress());
       _scheduleHideControls();
 
@@ -391,6 +397,23 @@ class _NativePlayerPageState extends State<NativePlayerPage> {
       if (!mounted) return;
       setState(() => _error = e.toString());
     }
+  }
+
+  // Fire-and-forget vote that the current source actually worked for this
+  // title. Skips if we can't identify the server (e.g. sourceUrl missing or
+  // it doesn't match any known provider host).
+  void _recordServerSuccess() {
+    final src = widget.sourceUrl;
+    final id = widget.tmdbId;
+    final mt = widget.mediaType;
+    if (src == null || id == null || mt == null) return;
+    final server = streamServerForUrl(src);
+    if (server == null) return;
+    ServerVoteService.instance.recordSuccess(
+      tmdbId: id,
+      mediaType: mt,
+      serverName: server.name,
+    );
   }
 
   Future<String?> _fetchVtt(String url) async {

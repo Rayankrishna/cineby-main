@@ -7,6 +7,7 @@ import { errorHandler } from './middleware/error';
 import authRoutes from './routes/auth';
 import userRoutes from './routes/user';
 import historyRoutes from './routes/history';
+import serverVoteRoutes from './routes/server_votes';
 import watchlistRoutes from './routes/watchlist';
 
 export const createApp = () => {
@@ -27,6 +28,7 @@ export const createApp = () => {
   app.use('/api/v1', userRoutes);
   app.use('/api/v1/history', historyRoutes);
   app.use('/api/v1/watchlist', watchlistRoutes);
+  app.use('/api/v1/server-votes', serverVoteRoutes);
 
   app.use((_req, res) =>
     res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Route not found' } }),

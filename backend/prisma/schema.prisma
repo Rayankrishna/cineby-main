@@ -61,6 +61,24 @@ model WatchHistoryItem {
   @@index([userId, updatedAt])
 }
 
+/// Global, crowd-sourced ranking of which embed provider has worked for a
+/// given TMDB title. Every successful native-player init pings POST
+/// /server-votes which upserts here (incrementing successCount). The client
+/// queries GET /server-votes/{tmdbId} on detail-page mount and pre-selects
+/// the highest-ranked provider, so subsequent users get the source most
+/// likely to work without having to discover it by trial.
+model ServerVote {
+  id           String    @id @default(uuid())
+  tmdbId       Int
+  mediaType    MediaType
+  serverName   String
+  successCount Int       @default(0)
+  lastSuccess  DateTime  @default(now())
+
+  @@unique([tmdbId, mediaType, serverName], name: "tmdbId_mediaType_serverName")
+  @@index([tmdbId, mediaType])
+}
+
 model WatchlistItem {
   id         String    @id @default(uuid())
   userId     String
