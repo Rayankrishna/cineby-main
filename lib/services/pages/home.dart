@@ -425,6 +425,78 @@ class _MyHomePageState extends State<MyHomePage> {
               ),
           ],
         ),
+        _RailSection(
+          title: 'Best in Action',
+          subtitle: 'Explosions, chases, fights',
+          children: [
+            for (final r in _searchStore.actionMovies.take(20))
+              _RailPoster(
+                posterPath: r.posterPath,
+                title: r.title ?? r.name ?? 'Unknown',
+                onTap: () => _openDetail(r),
+              ),
+          ],
+        ),
+        _RailSection(
+          title: 'Best in Comedy',
+          subtitle: 'Laugh-out-loud picks',
+          children: [
+            for (final r in _searchStore.comedyMovies.take(20))
+              _RailPoster(
+                posterPath: r.posterPath,
+                title: r.title ?? r.name ?? 'Unknown',
+                onTap: () => _openDetail(r),
+              ),
+          ],
+        ),
+        _RailSection(
+          title: 'Best in Drama',
+          subtitle: 'Stories that hit hard',
+          children: [
+            for (final r in _searchStore.dramaMovies.take(20))
+              _RailPoster(
+                posterPath: r.posterPath,
+                title: r.title ?? r.name ?? 'Unknown',
+                onTap: () => _openDetail(r),
+              ),
+          ],
+        ),
+        _RailSection(
+          title: 'Best in Horror',
+          subtitle: 'Don\'t watch alone',
+          children: [
+            for (final r in _searchStore.horrorMovies.take(20))
+              _RailPoster(
+                posterPath: r.posterPath,
+                title: r.title ?? r.name ?? 'Unknown',
+                onTap: () => _openDetail(r),
+              ),
+          ],
+        ),
+        _RailSection(
+          title: 'Best in Sci-Fi',
+          subtitle: 'Worlds beyond ours',
+          children: [
+            for (final r in _searchStore.sciFiMovies.take(20))
+              _RailPoster(
+                posterPath: r.posterPath,
+                title: r.title ?? r.name ?? 'Unknown',
+                onTap: () => _openDetail(r),
+              ),
+          ],
+        ),
+        _RailSection(
+          title: 'Best in Romance',
+          subtitle: 'Love stories worth your time',
+          children: [
+            for (final r in _searchStore.romanceMovies.take(20))
+              _RailPoster(
+                posterPath: r.posterPath,
+                title: r.title ?? r.name ?? 'Unknown',
+                onTap: () => _openDetail(r),
+              ),
+          ],
+        ),
       ],
       ),
     );

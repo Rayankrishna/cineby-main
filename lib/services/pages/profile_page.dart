@@ -73,15 +73,6 @@ class _ProfilePageState extends State<ProfilePage> {
               slivers: [
                 SliverToBoxAdapter(child: _buildHero()),
                 SliverToBoxAdapter(child: _buildStatLine(inProgress.length)),
-                if (inProgress.isNotEmpty) ...[
-                  SliverToBoxAdapter(
-                    child: _SectionHeader(
-                      title: 'Continue Watching',
-                      subtitle: 'Pick up where you left off',
-                    ),
-                  ),
-                  SliverToBoxAdapter(child: _continueWatchingRail(inProgress)),
-                ],
                 SliverToBoxAdapter(
                   child: _SectionHeader(
                     title: 'My Watchlist',
@@ -269,113 +260,6 @@ class _ProfilePageState extends State<ProfilePage> {
             },
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _continueWatchingRail(List inProgress) {
-    return SizedBox(
-      height: 220,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.fromLTRB(20, 4, 20, 4),
-        itemCount: inProgress.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 12),
-        itemBuilder: (context, i) {
-          final item = inProgress[i];
-          final progress =
-              item.durationSeconds != null && item.durationSeconds! > 0
-                  ? (item.progressSeconds / item.durationSeconds!).clamp(
-                    0.0,
-                    1.0,
-                  )
-                  : 0.0;
-          return FadeInUp(
-            delay: Duration(milliseconds: 30 * i),
-            child: SqueezeButton(
-              onTap: () => _openDetail(item.tmdbId, item.mediaType),
-              child: SizedBox(
-                width: 142,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Stack(
-                      children: [
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(14),
-                          child: SizedBox(
-                            width: 142,
-                            height: 200 * 0.84,
-                            child:
-                                item.posterPath != null
-                                    ? Image.network(
-                                      'https://image.tmdb.org/t/p/w300${item.posterPath}',
-                                      fit: BoxFit.cover,
-                                      errorBuilder:
-                                          (_, __, ___) => Container(
-                                            color: const Color(0xFF35343E),
-                                            child: const Icon(
-                                              Icons.movie_rounded,
-                                              color: Colors.white24,
-                                            ),
-                                          ),
-                                    )
-                                    : Container(
-                                      color: const Color(0xFF35343E),
-                                      child: const Icon(
-                                        Icons.movie_rounded,
-                                        color: Colors.white24,
-                                      ),
-                                    ),
-                          ),
-                        ),
-                        Positioned(
-                          left: 8,
-                          right: 8,
-                          bottom: 8,
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(2),
-                            child: LinearProgressIndicator(
-                              value: progress,
-                              minHeight: 3,
-                              backgroundColor: Colors.white.withValues(
-                                alpha: 0.25,
-                              ),
-                              valueColor: const AlwaysStoppedAnimation(
-                                Color(0xFFEF0003),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      item.title ?? 'Unknown',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: -0.1,
-                      ),
-                    ),
-                    Text(
-                      item.mediaType == 'tv'
-                          ? 'S${item.seasonNumber} · E${item.episodeNumber}'
-                          : 'Movie',
-                      style: const TextStyle(
-                        color: Colors.white54,
-                        fontSize: 11,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          );
-        },
       ),
     );
   }

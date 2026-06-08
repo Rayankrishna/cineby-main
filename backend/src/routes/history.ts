@@ -15,7 +15,7 @@ const COMPLETED_RATIO = 0.9;
 // Per-user retention cap. After each save we delete history rows past the
 // newest N. Reduces row growth and keeps queries fast — Continue Watching
 // and full history both read from this table.
-const HISTORY_KEEP_LATEST = 5;
+const HISTORY_KEEP_LATEST = 10;
 
 /// Delete all history rows for a user past the newest [HISTORY_KEEP_LATEST].
 /// Fire-and-forget — callers should not await this on the hot path.

@@ -135,6 +135,114 @@ mixin _$SearchStore on _SearchStore, Store {
     });
   }
 
+  late final _$actionMoviesAtom = Atom(
+    name: '_SearchStore.actionMovies',
+    context: context,
+  );
+
+  @override
+  ObservableList<SearchResult> get actionMovies {
+    _$actionMoviesAtom.reportRead();
+    return super.actionMovies;
+  }
+
+  @override
+  set actionMovies(ObservableList<SearchResult> value) {
+    _$actionMoviesAtom.reportWrite(value, super.actionMovies, () {
+      super.actionMovies = value;
+    });
+  }
+
+  late final _$comedyMoviesAtom = Atom(
+    name: '_SearchStore.comedyMovies',
+    context: context,
+  );
+
+  @override
+  ObservableList<SearchResult> get comedyMovies {
+    _$comedyMoviesAtom.reportRead();
+    return super.comedyMovies;
+  }
+
+  @override
+  set comedyMovies(ObservableList<SearchResult> value) {
+    _$comedyMoviesAtom.reportWrite(value, super.comedyMovies, () {
+      super.comedyMovies = value;
+    });
+  }
+
+  late final _$dramaMoviesAtom = Atom(
+    name: '_SearchStore.dramaMovies',
+    context: context,
+  );
+
+  @override
+  ObservableList<SearchResult> get dramaMovies {
+    _$dramaMoviesAtom.reportRead();
+    return super.dramaMovies;
+  }
+
+  @override
+  set dramaMovies(ObservableList<SearchResult> value) {
+    _$dramaMoviesAtom.reportWrite(value, super.dramaMovies, () {
+      super.dramaMovies = value;
+    });
+  }
+
+  late final _$horrorMoviesAtom = Atom(
+    name: '_SearchStore.horrorMovies',
+    context: context,
+  );
+
+  @override
+  ObservableList<SearchResult> get horrorMovies {
+    _$horrorMoviesAtom.reportRead();
+    return super.horrorMovies;
+  }
+
+  @override
+  set horrorMovies(ObservableList<SearchResult> value) {
+    _$horrorMoviesAtom.reportWrite(value, super.horrorMovies, () {
+      super.horrorMovies = value;
+    });
+  }
+
+  late final _$sciFiMoviesAtom = Atom(
+    name: '_SearchStore.sciFiMovies',
+    context: context,
+  );
+
+  @override
+  ObservableList<SearchResult> get sciFiMovies {
+    _$sciFiMoviesAtom.reportRead();
+    return super.sciFiMovies;
+  }
+
+  @override
+  set sciFiMovies(ObservableList<SearchResult> value) {
+    _$sciFiMoviesAtom.reportWrite(value, super.sciFiMovies, () {
+      super.sciFiMovies = value;
+    });
+  }
+
+  late final _$romanceMoviesAtom = Atom(
+    name: '_SearchStore.romanceMovies',
+    context: context,
+  );
+
+  @override
+  ObservableList<SearchResult> get romanceMovies {
+    _$romanceMoviesAtom.reportRead();
+    return super.romanceMovies;
+  }
+
+  @override
+  set romanceMovies(ObservableList<SearchResult> value) {
+    _$romanceMoviesAtom.reportWrite(value, super.romanceMovies, () {
+      super.romanceMovies = value;
+    });
+  }
+
   late final _$errorMessageAtom = Atom(
     name: '_SearchStore.errorMessage',
     context: context,

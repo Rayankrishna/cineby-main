@@ -1,4 +1,5 @@
 import 'package:app_web_ui/services/page_transitions.dart';
+import 'package:app_web_ui/services/pages/browse_results_page.dart';
 import 'package:app_web_ui/services/pages/webview.dart';
 import 'package:app_web_ui/services/responsive.dart';
 import 'package:app_web_ui/services/server_vote_service.dart';
@@ -608,24 +609,37 @@ class _MovieDetailPageState extends State<MovieDetailPage> {
                         const SizedBox(height: 16),
                       ],
 
-                      // Genres
+                      // Genres — tap to browse other movies in that genre.
                       if (movie.genres.isNotEmpty) ...[
                         Wrap(
                           spacing: 8,
                           runSpacing: 8,
                           children: movie.genres
                               .map(
-                                (g) => Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 12, vertical: 6),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white12,
-                                    borderRadius: BorderRadius.circular(20),
+                                (g) => SqueezeButton(
+                                  onTap: () => Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => GenreResultsPage(
+                                        genreId: g.id,
+                                        genreName: g.name,
+                                        mediaType: 'movie',
+                                      ),
+                                    ),
                                   ),
-                                  child: Text(
-                                    g.name,
-                                    style: const TextStyle(
-                                        color: Colors.white, fontSize: 12),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 12, vertical: 6),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white12,
+                                      borderRadius:
+                                          BorderRadius.circular(20),
+                                    ),
+                                    child: Text(
+                                      g.name,
+                                      style: const TextStyle(
+                                          color: Colors.white, fontSize: 12),
+                                    ),
                                   ),
                                 ),
                               )
@@ -684,42 +698,53 @@ class _MovieDetailPageState extends State<MovieDetailPage> {
                       itemCount: movie.cast.length,
                       itemBuilder: (context, index) {
                         final member = movie.cast[index];
-                        return Container(
-                          width: 90,
-                          margin: const EdgeInsets.only(right: 12),
-                          child: Column(
-                            children: [
-                              CircleAvatar(
-                                radius: 36,
-                                backgroundColor: Colors.grey[800],
-                                backgroundImage: member.profilePath != null
-                                    ? NetworkImage(
-                                        'https://image.tmdb.org/t/p/w185${member.profilePath}',
-                                      )
-                                    : null,
-                                child: member.profilePath == null
-                                    ? const Icon(Icons.person,
-                                        color: Colors.white54, size: 28)
-                                    : null,
+                        return SqueezeButton(
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => PersonFilmographyPage(
+                                personId: member.id,
+                                personName: member.name ?? 'Actor',
                               ),
-                              const SizedBox(height: 6),
-                              Text(
-                                member.name ?? '',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(
-                                    color: Colors.white, fontSize: 11),
-                              ),
-                              Text(
-                                member.character ?? '',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(
-                                    color: Colors.white54, fontSize: 10),
-                              ),
-                            ],
+                            ),
+                          ),
+                          child: Container(
+                            width: 90,
+                            margin: const EdgeInsets.only(right: 12),
+                            child: Column(
+                              children: [
+                                CircleAvatar(
+                                  radius: 36,
+                                  backgroundColor: Colors.grey[800],
+                                  backgroundImage: member.profilePath != null
+                                      ? NetworkImage(
+                                          'https://image.tmdb.org/t/p/w185${member.profilePath}',
+                                        )
+                                      : null,
+                                  child: member.profilePath == null
+                                      ? const Icon(Icons.person,
+                                          color: Colors.white54, size: 28)
+                                      : null,
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  member.name ?? '',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                      color: Colors.white, fontSize: 11),
+                                ),
+                                Text(
+                                  member.character ?? '',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                      color: Colors.white54, fontSize: 10),
+                                ),
+                              ],
+                            ),
                           ),
                         );
                       },

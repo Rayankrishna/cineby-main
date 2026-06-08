@@ -42,6 +42,11 @@ class SearchResult {
   final String? mediaType;
   @JsonKey(name: 'release_date')
   final String? releaseDate;
+  // TMDB's multi-search returns `first_air_date` for TV results instead of
+  // `release_date`. Keeping them separate so we can coalesce via
+  // `releaseDate ?? firstAirDate` in scoring / filtering.
+  @JsonKey(name: 'first_air_date')
+  final String? firstAirDate;
   @JsonKey(name: 'vote_average')
   final double? voteAverage;
   @JsonKey(name: 'vote_count')
@@ -58,6 +63,7 @@ class SearchResult {
     this.backdropPath,
     this.mediaType,
     this.releaseDate,
+    this.firstAirDate,
     this.voteAverage,
     this.voteCount,
   });

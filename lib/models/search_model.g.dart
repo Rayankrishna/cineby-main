@@ -36,6 +36,7 @@ SearchResult _$SearchResultFromJson(Map<String, dynamic> json) => SearchResult(
   backdropPath: json['backdrop_path'] as String?,
   mediaType: json['media_type'] as String?,
   releaseDate: json['release_date'] as String?,
+  firstAirDate: json['first_air_date'] as String?,
   voteAverage: (json['vote_average'] as num?)?.toDouble(),
   voteCount: (json['vote_count'] as num?)?.toInt(),
 );
@@ -52,6 +53,7 @@ Map<String, dynamic> _$SearchResultToJson(SearchResult instance) =>
       'backdrop_path': instance.backdropPath,
       'media_type': instance.mediaType,
       'release_date': instance.releaseDate,
+      'first_air_date': instance.firstAirDate,
       'vote_average': instance.voteAverage,
       'vote_count': instance.voteCount,
     };

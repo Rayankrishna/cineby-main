@@ -1,5 +1,6 @@
 import 'package:app_web_ui/models/tv_detail_model.dart';
 import 'package:app_web_ui/services/page_transitions.dart';
+import 'package:app_web_ui/services/pages/browse_results_page.dart';
 import 'package:app_web_ui/services/pages/webview.dart';
 import 'package:app_web_ui/services/responsive.dart';
 import 'package:app_web_ui/services/server_vote_service.dart';
@@ -561,20 +562,32 @@ class _TvDetailPageState extends State<TvDetailPage> {
               runSpacing: 8,
               children: tv.genres
                   .map(
-                    (g) => Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
+                    (g) => SqueezeButton(
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => GenreResultsPage(
+                            genreId: g.id,
+                            genreName: g.name,
+                            mediaType: 'tv',
+                          ),
+                        ),
                       ),
-                      decoration: BoxDecoration(
-                        color: Colors.white12,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        g.name,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white12,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          g.name,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                          ),
                         ),
                       ),
                     ),
