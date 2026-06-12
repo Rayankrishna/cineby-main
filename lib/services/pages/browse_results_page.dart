@@ -27,40 +27,115 @@ class GenreResultsPage extends StatefulWidget {
 }
 
 class _GenreResultsPageState extends State<GenreResultsPage> {
-  Future<List<SearchResult>>? _future;
+  final ScrollController _scroll = ScrollController();
+  final List<SearchResult> _items = [];
+  final Set<int> _seenIds = {};
+
+  int _page = 0; // last page successfully loaded
+  int _totalPages = 1;
+  bool _loading = false; // a fetch is in flight
+  bool _initialLoad = true; // before the first page resolves
+  String? _error;
 
   @override
   void initState() {
     super.initState();
-    _future = _load();
+    _scroll.addListener(_onScroll);
+    _loadNextPage();
   }
 
-  Future<List<SearchResult>> _load() async {
-    final base = widget.mediaType == 'tv'
-        ? '$_tmdbTvBase/discover/tv?api_key=$tmdbApiKey'
-            '&with_genres=${widget.genreId}&sort_by=popularity.desc&language=en&page=1'
-        : movieByGenreUrl(widget.genreId);
-    final res = await tmdbDio.get(base);
-    final results = SearchResponse.fromJson(res.data).results;
-    // /discover doesn't include media_type — patch it in so the cards know
-    // which detail page to route to.
-    return results
-        .map((r) => SearchResult(
-              id: r.id,
-              title: r.title,
-              name: r.name,
-              originalTitle: r.originalTitle,
-              originalName: r.originalName,
-              overview: r.overview,
-              posterPath: r.posterPath,
-              backdropPath: r.backdropPath,
-              mediaType: widget.mediaType,
-              releaseDate: r.releaseDate,
-              firstAirDate: r.firstAirDate,
-              voteAverage: r.voteAverage,
-              voteCount: r.voteCount,
-            ))
-        .toList();
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_scroll.hasClients) return;
+    // Prefetch when within ~600px of the bottom.
+    if (_scroll.position.pixels >=
+        _scroll.position.maxScrollExtent - 600) {
+      _loadNextPage();
+    }
+  }
+
+  String _pagedUrl(int page) {
+    return widget.mediaType == 'tv'
+        ? '$_tmdbBase/discover/tv?api_key=$tmdbApiKey'
+            '&with_genres=${widget.genreId}&sort_by=popularity.desc&language=en&page=$page'
+        : '$_tmdbBase/discover/movie?api_key=$tmdbApiKey'
+            '&with_genres=${widget.genreId}&sort_by=popularity.desc&language=en&page=$page';
+  }
+
+  Future<void> _loadNextPage() async {
+    if (_loading) return;
+    if (_page >= _totalPages) return; // no more pages
+    _loading = true;
+    final next = _page + 1;
+    try {
+      final res = await tmdbDio.get(_pagedUrl(next));
+      final parsed = SearchResponse.fromJson(res.data);
+      _totalPages = parsed.totalPages;
+      final now = DateTime.now();
+      final fresh = <SearchResult>[];
+      for (final r in parsed.results) {
+        if (r.posterPath == null) continue;
+        if (_seenIds.contains(r.id)) continue;
+        final date = r.releaseDate ?? r.firstAirDate;
+        if (date == null || date.isEmpty) continue;
+        final d = DateTime.tryParse(date);
+        if (d == null || d.isAfter(now)) continue;
+        _seenIds.add(r.id);
+        // /discover omits media_type — patch it so cards route correctly.
+        fresh.add(SearchResult(
+          id: r.id,
+          title: r.title,
+          name: r.name,
+          originalTitle: r.originalTitle,
+          originalName: r.originalName,
+          overview: r.overview,
+          posterPath: r.posterPath,
+          backdropPath: r.backdropPath,
+          mediaType: widget.mediaType,
+          releaseDate: r.releaseDate,
+          firstAirDate: r.firstAirDate,
+          voteAverage: r.voteAverage,
+          voteCount: r.voteCount,
+        ));
+      }
+      if (!mounted) return;
+      setState(() {
+        _page = next;
+        _items.addAll(fresh);
+        _initialLoad = false;
+      });
+      // If a whole page got filtered down to nothing but more pages exist,
+      // keep going so the user isn't left with a short/empty list.
+      if (fresh.isEmpty && _page < _totalPages) {
+        _loading = false;
+        _loadNextPage();
+        return;
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.toString();
+        _initialLoad = false;
+      });
+    } finally {
+      _loading = false;
+    }
+  }
+
+  void _open(SearchResult r) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => r.mediaType == 'tv'
+            ? TvDetailPage(tvId: r.id)
+            : MovieDetailPage(movieId: r.id),
+      ),
+    );
   }
 
   @override
@@ -72,7 +147,71 @@ class _GenreResultsPageState extends State<GenreResultsPage> {
         elevation: 0,
         title: Text(widget.genreName),
       ),
-      body: _ResultsBody(future: _future!),
+      body: _buildBody(),
+    );
+  }
+
+  Widget _buildBody() {
+    if (_initialLoad) {
+      return const Center(
+        child: CircularProgressIndicator(color: Color(0xFFEF0003)),
+      );
+    }
+    if (_items.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            _error != null ? 'Couldn\'t load — $_error' : 'Nothing found.',
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Colors.white54),
+          ),
+        ),
+      );
+    }
+    final columns = posterGridColumns(MediaQuery.of(context).size.width);
+    final hasMore = _page < _totalPages;
+    return CustomScrollView(
+      controller: _scroll,
+      physics: const AlwaysScrollableScrollPhysics(),
+      slivers: [
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+          sliver: SliverGrid(
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: columns,
+              childAspectRatio: 0.58,
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 18,
+            ),
+            delegate: SliverChildBuilderDelegate(
+              (_, i) => browsePosterCard(_items[i], () => _open(_items[i])),
+              childCount: _items.length,
+            ),
+          ),
+        ),
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(0, 8, 0, 120),
+            child: Center(
+              child: hasMore
+                  ? const SizedBox(
+                      width: 26,
+                      height: 26,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.4,
+                        color: Color(0xFFEF0003),
+                      ),
+                    )
+                  : const Text(
+                      'That\'s everything',
+                      style:
+                          TextStyle(color: Colors.white38, fontSize: 12.5),
+                    ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -225,46 +364,7 @@ class _ResultsBody extends StatelessWidget {
             final r = items[i];
             return FadeInUp(
               delay: Duration(milliseconds: 30 * (i % 12)),
-              child: SqueezeButton(
-                onTap: () => _open(ctx, r),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(14),
-                        child: Image.network(
-                          'https://image.tmdb.org/t/p/w300${r.posterPath}',
-                          fit: BoxFit.cover,
-                          width: double.infinity,
-                          errorBuilder: (_, __, ___) => Container(
-                            color: const Color(0xFF35343E),
-                            child: const Center(
-                              child: Icon(Icons.movie_rounded,
-                                  color: Colors.white24),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    SizedBox(
-                      height: 34,
-                      child: Text(
-                        r.title ?? r.name ?? 'Unknown',
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                          height: 1.25,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+              child: browsePosterCard(r, () => _open(ctx, r)),
             );
           },
         );
@@ -273,6 +373,50 @@ class _ResultsBody extends StatelessWidget {
   }
 }
 
-// Re-export the TMDB base for the genre fetch that needs a /discover/tv URL
-// (config.dart only exposes a movie helper).
-const String _tmdbTvBase = 'https://api.themoviedb.org/3';
+// TMDB base for the genre /discover URLs (config.dart only exposes a
+// page-1 movie helper; paginated browse builds its own URLs).
+const String _tmdbBase = 'https://api.themoviedb.org/3';
+
+/// Shared poster card used by both the genre grid and the person grid, so
+/// they look and behave identically.
+Widget browsePosterCard(SearchResult r, VoidCallback onTap) {
+  return SqueezeButton(
+    onTap: onTap,
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(14),
+            child: Image.network(
+              'https://image.tmdb.org/t/p/w300${r.posterPath}',
+              fit: BoxFit.cover,
+              width: double.infinity,
+              errorBuilder: (_, __, ___) => Container(
+                color: const Color(0xFF35343E),
+                child: const Center(
+                  child: Icon(Icons.movie_rounded, color: Colors.white24),
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        SizedBox(
+          height: 34,
+          child: Text(
+            r.title ?? r.name ?? 'Unknown',
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              height: 1.25,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}

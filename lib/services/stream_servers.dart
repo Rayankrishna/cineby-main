@@ -72,6 +72,16 @@ final List<StreamServer> streamServers = [
         ? 'https://111movies.net/tv/$id/$s/$e'
         : 'https://111movies.net/movie/$id',
   ),
+  // Verified live Oct 2025: full Next.js player app, healthy movie + TV
+  // pages, no parking/ad redirect. Same /movie/{id} + /tv/{id}/{s}/{e}
+  // structure as 111Movies.
+  StreamServer(
+    name: 'VidFast',
+    hostMatch: 'vidfast.pro',
+    buildUrl: (id, mt, s, e) => mt == 'tv'
+        ? 'https://vidfast.pro/tv/$id/$s/$e'
+        : 'https://vidfast.pro/movie/$id',
+  ),
   StreamServer(
     name: 'VidSrc',
     hostMatch: 'vidsrc.to',

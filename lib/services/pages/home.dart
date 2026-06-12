@@ -1,5 +1,6 @@
 import 'package:app_web_ui/models/search_model.dart';
 import 'package:app_web_ui/services/page_transitions.dart';
+import 'package:app_web_ui/services/pages/browse_results_page.dart';
 import 'package:app_web_ui/services/pages/movie_detail_page.dart';
 import 'package:app_web_ui/services/pages/tv_detail_page.dart';
 import 'package:app_web_ui/services/responsive.dart';
@@ -29,8 +30,18 @@ class _MyHomePageState extends State<MyHomePage> {
   void initState() {
     super.initState();
     _searchStore.fetchHomeFeed();
-    historyStore.fetch();
+    // Load history first, then seed the "For You" rail from it.
+    historyStore.fetch().then((_) => _loadForYou());
     _searchFocus.addListener(_onFocusChanged);
+  }
+
+  // Build "For You" recommendation seeds from the most recent history items
+  // (newest first), then ask the store to fetch + rank recommendations.
+  Future<void> _loadForYou() async {
+    final seeds = historyStore.items
+        .map((h) => (tmdbId: h.tmdbId, mediaType: h.mediaType))
+        .toList();
+    await _searchStore.fetchForYou(seeds);
   }
 
   void _onFocusChanged() {
@@ -128,120 +139,277 @@ class _MyHomePageState extends State<MyHomePage> {
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 14, 20, 10),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOutCubic,
-        height: 46,
-        decoration: BoxDecoration(
-          color:
-              active
-                  ? Colors.white.withValues(alpha: 0.06)
-                  : Colors.white.withValues(alpha: 0.03),
-          borderRadius: BorderRadius.circular(13),
-          border: Border.all(
-            color:
-                focused
-                    ? const Color(0xFFF7BB0D).withValues(alpha: 0.55)
-                    : active
-                    ? Colors.white.withValues(alpha: 0.16)
-                    : Colors.white.withValues(alpha: 0.06),
-            width: focused ? 1.2 : 1,
+      child: Row(
+        children: [
+          Expanded(
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeOutCubic,
+              height: 46,
+              decoration: BoxDecoration(
+                color:
+                    active
+                        ? Colors.white.withValues(alpha: 0.06)
+                        : Colors.white.withValues(alpha: 0.03),
+                borderRadius: BorderRadius.circular(13),
+                border: Border.all(
+                  color:
+                      focused
+                          ? const Color(0xFFF7BB0D).withValues(alpha: 0.55)
+                          : active
+                          ? Colors.white.withValues(alpha: 0.16)
+                          : Colors.white.withValues(alpha: 0.06),
+                  width: focused ? 1.2 : 1,
+                ),
+              ),
+              child: Row(
+                children: [
+                  const SizedBox(width: 14),
+                  Icon(
+                    Icons.search_rounded,
+                    size: 18,
+                    color: active ? Colors.white70 : Colors.white38,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: TextField(
+                      controller: _searchController,
+                      focusNode: _searchFocus,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w500,
+                        letterSpacing: -0.1,
+                      ),
+                      cursorColor: const Color(0xFFF7BB0D),
+                      cursorWidth: 1.5,
+                      cursorHeight: 16,
+                      decoration: const InputDecoration(
+                        hintText: 'Search titles, people, genres',
+                        hintStyle: TextStyle(
+                          color: Colors.white30,
+                          fontWeight: FontWeight.w400,
+                          fontSize: 14.5,
+                          letterSpacing: -0.1,
+                        ),
+                        isCollapsed: true,
+                        border: InputBorder.none,
+                        contentPadding: EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      onChanged: (value) {
+                        _searchStore.setSearchQuery(value);
+                        setState(() {});
+                      },
+                    ),
+                  ),
+                  if (hasText) ...[
+                    GestureDetector(
+                      onTap: () {
+                        _searchController.clear();
+                        _searchStore.setSearchQuery('');
+                        _searchFocus.unfocus();
+                        setState(() {});
+                      },
+                      behavior: HitTestBehavior.opaque,
+                      child: Container(
+                        width: 22,
+                        height: 22,
+                        margin: const EdgeInsets.only(right: 12),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.12),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.close_rounded,
+                          color: Colors.white70,
+                          size: 14,
+                        ),
+                      ),
+                    ),
+                  ] else ...[
+                    Padding(
+                      padding: const EdgeInsets.only(right: 14),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.06),
+                          borderRadius: BorderRadius.circular(5),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.08),
+                          ),
+                        ),
+                        child: const Text(
+                          'K',
+                          style: TextStyle(
+                            color: Colors.white54,
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 0,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
           ),
+          const SizedBox(width: 10),
+          _categoriesButton(),
+        ],
+      ),
+    );
+  }
+
+  // Categories button sitting to the right of the search field. Tapping it
+  // opens a sheet of TMDB movie genres; picking one opens GenreResultsPage.
+  Widget _categoriesButton() {
+    return SqueezeButton(
+      onTap: _showCategoriesSheet,
+      child: Container(
+        height: 46,
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(13),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
         ),
-        child: Row(
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            const SizedBox(width: 14),
+            Text(
+              'Categories',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                letterSpacing: -0.1,
+              ),
+            ),
+            SizedBox(width: 2),
             Icon(
-              Icons.search_rounded,
+              Icons.keyboard_arrow_down_rounded,
               size: 18,
-              color: active ? Colors.white70 : Colors.white38,
+              color: Colors.white54,
             ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: TextField(
-                controller: _searchController,
-                focusNode: _searchFocus,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 14.5,
-                  fontWeight: FontWeight.w500,
-                  letterSpacing: -0.1,
-                ),
-                cursorColor: const Color(0xFFF7BB0D),
-                cursorWidth: 1.5,
-                cursorHeight: 16,
-                decoration: const InputDecoration(
-                  hintText: 'Search titles, people, genres',
-                  hintStyle: TextStyle(
-                    color: Colors.white30,
-                    fontWeight: FontWeight.w400,
-                    fontSize: 14.5,
-                    letterSpacing: -0.1,
-                  ),
-                  isCollapsed: true,
-                  border: InputBorder.none,
-                  contentPadding: EdgeInsets.symmetric(vertical: 12),
-                ),
-                onChanged: (value) {
-                  _searchStore.setSearchQuery(value);
-                  setState(() {});
-                },
-              ),
-            ),
-            if (hasText) ...[
-              GestureDetector(
-                onTap: () {
-                  _searchController.clear();
-                  _searchStore.setSearchQuery('');
-                  _searchFocus.unfocus();
-                  setState(() {});
-                },
-                behavior: HitTestBehavior.opaque,
-                child: Container(
-                  width: 22,
-                  height: 22,
-                  margin: const EdgeInsets.only(right: 12),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.12),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.close_rounded,
-                    color: Colors.white70,
-                    size: 14,
-                  ),
-                ),
-              ),
-            ] else ...[
-              Padding(
-                padding: const EdgeInsets.only(right: 14),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 6,
-                    vertical: 2,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.06),
-                    borderRadius: BorderRadius.circular(5),
-                    border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.08),
-                    ),
-                  ),
-                  child: const Text(
-                    'K',
-                    style: TextStyle(
-                      color: Colors.white54,
-                      fontSize: 10.5,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: 0,
-                    ),
-                  ),
-                ),
-              ),
-            ],
           ],
         ),
       ),
+    );
+  }
+
+  static const List<(int, String)> _movieGenres = [
+    (28, 'Action'),
+    (12, 'Adventure'),
+    (16, 'Animation'),
+    (35, 'Comedy'),
+    (80, 'Crime'),
+    (99, 'Documentary'),
+    (18, 'Drama'),
+    (10751, 'Family'),
+    (14, 'Fantasy'),
+    (36, 'History'),
+    (27, 'Horror'),
+    (10402, 'Music'),
+    (9648, 'Mystery'),
+    (10749, 'Romance'),
+    (878, 'Science Fiction'),
+    (53, 'Thriller'),
+    (10752, 'War'),
+    (37, 'Western'),
+  ];
+
+  void _showCategoriesSheet() {
+    _searchFocus.unfocus();
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF1F1E26),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder:
+          (ctx) => SafeArea(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(ctx).size.height * 0.7,
+              ),
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Row(
+                      children: [
+                        Icon(
+                          Icons.category_rounded,
+                          color: Color(0xFFF7BB0D),
+                          size: 22,
+                        ),
+                        SizedBox(width: 10),
+                        Text(
+                          'Categories',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: [
+                        for (final g in _movieGenres)
+                          SqueezeButton(
+                            onTap: () {
+                              Navigator.of(ctx).pop();
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder:
+                                      (_) => GenreResultsPage(
+                                        genreId: g.$1,
+                                        genreName: g.$2,
+                                        mediaType: 'movie',
+                                      ),
+                                ),
+                              );
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 10,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.06),
+                                borderRadius: BorderRadius.circular(100),
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.12),
+                                ),
+                              ),
+                              child: Text(
+                                g.$2,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 13.5,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
     );
   }
 
@@ -333,10 +501,8 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   Future<void> _refreshFeed() async {
-    await Future.wait([
-      _searchStore.fetchHomeFeed(),
-      historyStore.fetch(),
-    ]);
+    await Future.wait([_searchStore.fetchHomeFeed(), historyStore.fetch()]);
+    await _loadForYou();
   }
 
   Widget _buildFeed() {
@@ -345,159 +511,179 @@ class _MyHomePageState extends State<MyHomePage> {
       backgroundColor: const Color(0xFF1F1E26),
       onRefresh: _refreshFeed,
       child: ListView(
-      padding: const EdgeInsets.only(top: 6, bottom: 120),
-      physics: const AlwaysScrollableScrollPhysics(),
-      children: [
-        Observer(
-          builder: (_) {
-            if (historyStore.items.isEmpty) return const SizedBox.shrink();
-            final items = historyStore.items.take(12).toList();
-            return _RailSection(
-              title: 'Continue Watching',
-              subtitle: 'Pick up where you left off',
-              children: [
-                for (final h in items)
-                  _RailPoster(
-                    posterPath: h.posterPath,
-                    title: h.title ?? 'Unknown',
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder:
-                              (_) =>
-                                  h.mediaType == 'tv'
-                                      ? TvDetailPage(tvId: h.tmdbId)
-                                      : MovieDetailPage(movieId: h.tmdbId),
-                        ),
-                      );
-                    },
-                  ),
-              ],
-            );
-          },
-        ),
-        _RailSection(
-          title: 'Trending Today',
-          subtitle: 'What everyone\'s watching right now',
-          children: [
-            for (final r in _searchStore.trendingResults.take(20))
-              _RailPoster(
-                posterPath: r.posterPath,
-                title: r.title ?? r.name ?? 'Unknown',
-                onTap: () => _openDetail(r),
-              ),
-          ],
-        ),
-        _RailSection(
-          title: 'Top Movies',
-          subtitle: 'Most popular this week',
-          children: [
-            for (final r in _searchStore.topMovies.take(20))
-              _RailPoster(
-                posterPath: r.posterPath,
-                title: r.title ?? r.name ?? 'Unknown',
-                onTap: () => _openDetail(r),
-              ),
-          ],
-        ),
-        _RailSection(
-          title: 'Top Series',
-          subtitle: 'Binge-worthy shows',
-          children: [
-            for (final r in _searchStore.topSeries.take(20))
-              _RailPoster(
-                posterPath: r.posterPath,
-                title: r.title ?? r.name ?? 'Unknown',
-                onTap: () => _openDetail(r),
-              ),
-          ],
-        ),
-        _RailSection(
-          title: 'Top Anime',
-          subtitle: 'From Japan & China',
-          children: [
-            for (final r in _searchStore.topAnime.take(20))
-              _RailPoster(
-                posterPath: r.posterPath,
-                title: r.title ?? r.name ?? 'Unknown',
-                onTap: () => _openDetail(r),
-              ),
-          ],
-        ),
-        _RailSection(
-          title: 'Best in Action',
-          subtitle: 'Explosions, chases, fights',
-          children: [
-            for (final r in _searchStore.actionMovies.take(20))
-              _RailPoster(
-                posterPath: r.posterPath,
-                title: r.title ?? r.name ?? 'Unknown',
-                onTap: () => _openDetail(r),
-              ),
-          ],
-        ),
-        _RailSection(
-          title: 'Best in Comedy',
-          subtitle: 'Laugh-out-loud picks',
-          children: [
-            for (final r in _searchStore.comedyMovies.take(20))
-              _RailPoster(
-                posterPath: r.posterPath,
-                title: r.title ?? r.name ?? 'Unknown',
-                onTap: () => _openDetail(r),
-              ),
-          ],
-        ),
-        _RailSection(
-          title: 'Best in Drama',
-          subtitle: 'Stories that hit hard',
-          children: [
-            for (final r in _searchStore.dramaMovies.take(20))
-              _RailPoster(
-                posterPath: r.posterPath,
-                title: r.title ?? r.name ?? 'Unknown',
-                onTap: () => _openDetail(r),
-              ),
-          ],
-        ),
-        _RailSection(
-          title: 'Best in Horror',
-          subtitle: 'Don\'t watch alone',
-          children: [
-            for (final r in _searchStore.horrorMovies.take(20))
-              _RailPoster(
-                posterPath: r.posterPath,
-                title: r.title ?? r.name ?? 'Unknown',
-                onTap: () => _openDetail(r),
-              ),
-          ],
-        ),
-        _RailSection(
-          title: 'Best in Sci-Fi',
-          subtitle: 'Worlds beyond ours',
-          children: [
-            for (final r in _searchStore.sciFiMovies.take(20))
-              _RailPoster(
-                posterPath: r.posterPath,
-                title: r.title ?? r.name ?? 'Unknown',
-                onTap: () => _openDetail(r),
-              ),
-          ],
-        ),
-        _RailSection(
-          title: 'Best in Romance',
-          subtitle: 'Love stories worth your time',
-          children: [
-            for (final r in _searchStore.romanceMovies.take(20))
-              _RailPoster(
-                posterPath: r.posterPath,
-                title: r.title ?? r.name ?? 'Unknown',
-                onTap: () => _openDetail(r),
-              ),
-          ],
-        ),
-      ],
+        padding: const EdgeInsets.only(top: 6, bottom: 120),
+        physics: const AlwaysScrollableScrollPhysics(),
+        children: [
+          Observer(
+            builder: (_) {
+              if (historyStore.items.isEmpty) return const SizedBox.shrink();
+              final items = historyStore.items.take(12).toList();
+              return _RailSection(
+                title: 'Continue Watching',
+                subtitle: 'Pick up where you left off',
+                children: [
+                  for (final h in items)
+                    _RailPoster(
+                      posterPath: h.posterPath,
+                      title: h.title ?? 'Unknown',
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder:
+                                (_) =>
+                                    h.mediaType == 'tv'
+                                        ? TvDetailPage(tvId: h.tmdbId)
+                                        : MovieDetailPage(movieId: h.tmdbId),
+                          ),
+                        );
+                      },
+                    ),
+                ],
+              );
+            },
+          ),
+          // For You — recommendations seeded from the user's history,
+          // popularity-ranked. Hidden until there's something to show.
+          Observer(
+            builder: (_) {
+              final items = _searchStore.forYou;
+              if (items.isEmpty) return const SizedBox.shrink();
+              return _RailSection(
+                title: 'For You',
+                subtitle: 'Based on what you\'ve watched',
+                children: [
+                  for (final r in items.take(20))
+                    _RailPoster(
+                      posterPath: r.posterPath,
+                      title: r.title ?? r.name ?? 'Unknown',
+                      onTap: () => _openDetail(r),
+                    ),
+                ],
+              );
+            },
+          ),
+          _RailSection(
+            title: 'Trending Today',
+            subtitle: 'What everyone\'s watching right now',
+            children: [
+              for (final r in _searchStore.trendingResults.take(20))
+                _RailPoster(
+                  posterPath: r.posterPath,
+                  title: r.title ?? r.name ?? 'Unknown',
+                  onTap: () => _openDetail(r),
+                ),
+            ],
+          ),
+          _RailSection(
+            title: 'Top Movies',
+            subtitle: 'Most popular this week',
+            children: [
+              for (final r in _searchStore.topMovies.take(20))
+                _RailPoster(
+                  posterPath: r.posterPath,
+                  title: r.title ?? r.name ?? 'Unknown',
+                  onTap: () => _openDetail(r),
+                ),
+            ],
+          ),
+          _RailSection(
+            title: 'Top Series',
+            subtitle: 'Binge-worthy shows',
+            children: [
+              for (final r in _searchStore.topSeries.take(20))
+                _RailPoster(
+                  posterPath: r.posterPath,
+                  title: r.title ?? r.name ?? 'Unknown',
+                  onTap: () => _openDetail(r),
+                ),
+            ],
+          ),
+          _RailSection(
+            title: 'Top Anime',
+            subtitle: 'From Japan & China',
+            children: [
+              for (final r in _searchStore.topAnime.take(20))
+                _RailPoster(
+                  posterPath: r.posterPath,
+                  title: r.title ?? r.name ?? 'Unknown',
+                  onTap: () => _openDetail(r),
+                ),
+            ],
+          ),
+          _RailSection(
+            title: 'Best in Action',
+            subtitle: 'Explosions, chases, fights',
+            children: [
+              for (final r in _searchStore.actionMovies.take(20))
+                _RailPoster(
+                  posterPath: r.posterPath,
+                  title: r.title ?? r.name ?? 'Unknown',
+                  onTap: () => _openDetail(r),
+                ),
+            ],
+          ),
+          _RailSection(
+            title: 'Best in Comedy',
+            subtitle: 'Laugh-out-loud picks',
+            children: [
+              for (final r in _searchStore.comedyMovies.take(20))
+                _RailPoster(
+                  posterPath: r.posterPath,
+                  title: r.title ?? r.name ?? 'Unknown',
+                  onTap: () => _openDetail(r),
+                ),
+            ],
+          ),
+          _RailSection(
+            title: 'Best in Drama',
+            subtitle: 'Stories that hit hard',
+            children: [
+              for (final r in _searchStore.dramaMovies.take(20))
+                _RailPoster(
+                  posterPath: r.posterPath,
+                  title: r.title ?? r.name ?? 'Unknown',
+                  onTap: () => _openDetail(r),
+                ),
+            ],
+          ),
+          _RailSection(
+            title: 'Best in Horror',
+            subtitle: 'Don\'t watch alone',
+            children: [
+              for (final r in _searchStore.horrorMovies.take(20))
+                _RailPoster(
+                  posterPath: r.posterPath,
+                  title: r.title ?? r.name ?? 'Unknown',
+                  onTap: () => _openDetail(r),
+                ),
+            ],
+          ),
+          _RailSection(
+            title: 'Best in Sci-Fi',
+            subtitle: 'Worlds beyond ours',
+            children: [
+              for (final r in _searchStore.sciFiMovies.take(20))
+                _RailPoster(
+                  posterPath: r.posterPath,
+                  title: r.title ?? r.name ?? 'Unknown',
+                  onTap: () => _openDetail(r),
+                ),
+            ],
+          ),
+          _RailSection(
+            title: 'Best in Romance',
+            subtitle: 'Love stories worth your time',
+            children: [
+              for (final r in _searchStore.romanceMovies.take(20))
+                _RailPoster(
+                  posterPath: r.posterPath,
+                  title: r.title ?? r.name ?? 'Unknown',
+                  onTap: () => _openDetail(r),
+                ),
+            ],
+          ),
+        ],
       ),
     );
   }

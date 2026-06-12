@@ -55,6 +55,11 @@ String personMovieCreditsUrl(int personId) =>
 String personTvCreditsUrl(int personId) =>
     '$_tmdbBase/person/$personId/tv_credits?api_key=$tmdbApiKey&language=en';
 
+// "For You" — TMDB recommendations seeded from a title the user has watched.
+// mediaType is 'movie' or 'tv'.
+String recommendationsUrl(int tmdbId, String mediaType) =>
+    '$_tmdbBase/$mediaType/$tmdbId/recommendations?api_key=$tmdbApiKey&language=en&page=1';
+
 const String movieDetailUrl = '$_tmdbBase/movie';
 const String movieDetailParams =
     '?api_key=$tmdbApiKey&append_to_response=credits,external_ids,videos&language=en';

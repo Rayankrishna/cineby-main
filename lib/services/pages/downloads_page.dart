@@ -467,31 +467,57 @@ class _SeriesEpisodesPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Sort by (season, episode) so the list reads naturally.
-    final sorted = [...episodes]..sort((a, b) {
-        final sa = a.seasonNumber ?? 0;
-        final sb = b.seasonNumber ?? 0;
-        if (sa != sb) return sa.compareTo(sb);
-        return (a.episodeNumber ?? 0).compareTo(b.episodeNumber ?? 0);
-      });
-    final title = sorted.first.title ?? 'Series';
+    // Identify the series from the snapshot we were opened with, then render
+    // the episode list LIVE from downloadStore.completed inside an Observer.
+    // Without this, deleting an episode here doesn't refresh the list (the
+    // store updates but a captured snapshot doesn't) — you'd have to pop and
+    // re-enter to see the change.
+    final int? seriesTmdbId =
+        episodes.isNotEmpty ? episodes.first.tmdbId : null;
+    final String fallbackTitle =
+        episodes.isNotEmpty ? (episodes.first.title ?? 'Series') : 'Series';
+
     return Scaffold(
       backgroundColor: const Color(0xFF18181A),
       appBar: AppBar(
         backgroundColor: const Color(0xFF18181A),
         elevation: 0,
-        title: Text(title),
+        title: Text(fallbackTitle),
       ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
-        children: [
-          for (final ep in sorted)
-            _CompletedRow(
-              item: ep,
-              onPlay: () => onPlay(ep),
-              onDelete: () => onDelete(ep),
-            ),
-        ],
+      body: Observer(
+        builder: (_) {
+          final sorted = downloadStore.completed
+              .where((c) =>
+                  c.mediaType == 'tv' && c.tmdbId == seriesTmdbId)
+              .toList()
+            ..sort((a, b) {
+              final sa = a.seasonNumber ?? 0;
+              final sb = b.seasonNumber ?? 0;
+              if (sa != sb) return sa.compareTo(sb);
+              return (a.episodeNumber ?? 0).compareTo(b.episodeNumber ?? 0);
+            });
+
+          // Last episode deleted → return to the downloads list automatically
+          // instead of leaving an empty page open.
+          if (sorted.isEmpty) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              Navigator.of(context).maybePop();
+            });
+            return const SizedBox.shrink();
+          }
+
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+            children: [
+              for (final ep in sorted)
+                _CompletedRow(
+                  item: ep,
+                  onPlay: () => onPlay(ep),
+                  onDelete: () => onDelete(ep),
+                ),
+            ],
+          );
+        },
       ),
     );
   }

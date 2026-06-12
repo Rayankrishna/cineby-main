@@ -243,6 +243,24 @@ mixin _$SearchStore on _SearchStore, Store {
     });
   }
 
+  late final _$forYouAtom = Atom(
+    name: '_SearchStore.forYou',
+    context: context,
+  );
+
+  @override
+  ObservableList<SearchResult> get forYou {
+    _$forYouAtom.reportRead();
+    return super.forYou;
+  }
+
+  @override
+  set forYou(ObservableList<SearchResult> value) {
+    _$forYouAtom.reportWrite(value, super.forYou, () {
+      super.forYou = value;
+    });
+  }
+
   late final _$errorMessageAtom = Atom(
     name: '_SearchStore.errorMessage',
     context: context,

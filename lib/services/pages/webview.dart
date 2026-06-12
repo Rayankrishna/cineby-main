@@ -30,6 +30,12 @@ class MyWidget extends StatefulWidget {
   /// route pops back to the caller as soon as the URL is captured.
   final bool downloadMode;
 
+  /// When true, skip headless extraction entirely and just show the embed
+  /// in a visible webview (the iframe). This is the fallback for titles
+  /// whose extracted stream errors in ExoPlayer but plays fine in the
+  /// browser/iframe.
+  final bool iframePlayback;
+
   const MyWidget({
     super.key,
     this.url,
@@ -43,6 +49,7 @@ class MyWidget extends StatefulWidget {
     this.posterPath,
     this.backdropPath,
     this.downloadMode = false,
+    this.iframePlayback = false,
   });
 
   @override
@@ -106,7 +113,11 @@ class _MyWidgetState extends State<MyWidget> {
       (_) => _saveElapsed(),
     );
 
-    _startHeadlessExtractor();
+    // iframe-playback mode shows the embed directly in a visible webview —
+    // no extraction, no native handoff.
+    if (!widget.iframePlayback) {
+      _startHeadlessExtractor();
+    }
   }
 
   Future<void> _startHeadlessExtractor() async {
@@ -147,85 +158,7 @@ class _MyWidgetState extends State<MyWidget> {
         // Aggressive auto-clicker. Same as before — synthesises a full
         // pointer/mouse/click sequence at viewport centre + offsets, plus
         // common play-button selectors, plus video.play().
-        UserScript(
-          source: r"""
-            (function() {
-              var attempts = 0;
-              var maxAttempts = 120;
-              var selectors = [
-                'button[aria-label*="play" i]',
-                'button[title*="play" i]',
-                '[role="button"][aria-label*="play" i]',
-                '[class*="play" i][class*="button" i]',
-                '[class*="bigPlay" i]',
-                '[class*="big-play" i]',
-                '[class*="playButton" i]',
-                '.plyr__control--overlaid',
-                '.vjs-big-play-button',
-                '.jw-display-icon-container',
-                '.jw-icon-display',
-                'svg[class*="play" i]',
-                'div[class*="play" i]'
-              ];
-              function fakeClick(el, x, y) {
-                if (!el) return;
-                try {
-                  ['pointerdown','mousedown','pointerup','mouseup','click'].forEach(function(type) {
-                    var ev;
-                    if (type.indexOf('pointer') === 0) {
-                      ev = new PointerEvent(type, {bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, pointerType: 'mouse'});
-                    } else {
-                      ev = new MouseEvent(type, {bubbles: true, cancelable: true, view: window, clientX: x, clientY: y, button: 0});
-                    }
-                    el.dispatchEvent(ev);
-                  });
-                  try { el.click(); } catch (e) {}
-                } catch (e) {}
-              }
-              function clickAt(x, y) {
-                var el = document.elementFromPoint(x, y);
-                fakeClick(el, x, y);
-              }
-              var timer = setInterval(function() {
-                attempts++;
-                if (attempts > maxAttempts) { clearInterval(timer); return; }
-                try {
-                  var cx = (window.innerWidth || document.documentElement.clientWidth) / 2;
-                  var cy = (window.innerHeight || document.documentElement.clientHeight) / 2;
-                  clickAt(cx, cy);
-                  clickAt(cx, cy - 40);
-                  clickAt(cx, cy + 40);
-                  clickAt(cx - 40, cy);
-                  clickAt(cx + 40, cy);
-                  for (var s = 0; s < selectors.length; s++) {
-                    var els = document.querySelectorAll(selectors[s]);
-                    for (var j = 0; j < els.length; j++) {
-                      try { els[j].click(); } catch (e) {}
-                    }
-                  }
-                  var videos = document.querySelectorAll('video');
-                  for (var i = 0; i < videos.length; i++) {
-                    var v = videos[i];
-                    try {
-                      var p = v.play();
-                      if (p && p.catch) p.catch(function() {
-                        try { v.muted = true; v.play(); } catch (e) {}
-                      });
-                    } catch (e) {}
-                  }
-                  for (var k = 0; k < videos.length; k++) {
-                    if (!videos[k].paused && videos[k].currentTime > 0) {
-                      clearInterval(timer);
-                      return;
-                    }
-                  }
-                } catch (e) {}
-              }, 500);
-            })();
-          """,
-          injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
-          forMainFrameOnly: false,
-        ),
+        _autoClickUserScript(),
       ]),
       onWebViewCreated: (controller) {
         controller.addJavaScriptHandler(
@@ -563,8 +496,138 @@ class _MyWidgetState extends State<MyWidget> {
     );
   }
 
+  // Aggressive auto-clicker: synthesises a full pointer/mouse/click sequence
+  // at the viewport centre (+ offsets), clicks common play-button selectors,
+  // and calls video.play() with a muted-autoplay fallback. Runs in every
+  // frame so it reaches nested provider iframes. Shared by the headless
+  // extractor and the visible iframe-playback fallback.
+  UserScript _autoClickUserScript() {
+    return UserScript(
+      source: r"""
+        (function() {
+          var attempts = 0;
+          var maxAttempts = 120;
+          var selectors = [
+            'button[aria-label*="play" i]',
+            'button[title*="play" i]',
+            '[role="button"][aria-label*="play" i]',
+            '[class*="play" i][class*="button" i]',
+            '[class*="bigPlay" i]',
+            '[class*="big-play" i]',
+            '[class*="playButton" i]',
+            '.plyr__control--overlaid',
+            '.vjs-big-play-button',
+            '.jw-display-icon-container',
+            '.jw-icon-display',
+            'svg[class*="play" i]',
+            'div[class*="play" i]'
+          ];
+          function fakeClick(el, x, y) {
+            if (!el) return;
+            try {
+              ['pointerdown','mousedown','pointerup','mouseup','click'].forEach(function(type) {
+                var ev;
+                if (type.indexOf('pointer') === 0) {
+                  ev = new PointerEvent(type, {bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, pointerType: 'mouse'});
+                } else {
+                  ev = new MouseEvent(type, {bubbles: true, cancelable: true, view: window, clientX: x, clientY: y, button: 0});
+                }
+                el.dispatchEvent(ev);
+              });
+              try { el.click(); } catch (e) {}
+            } catch (e) {}
+          }
+          function clickAt(x, y) {
+            var el = document.elementFromPoint(x, y);
+            fakeClick(el, x, y);
+          }
+          var timer = setInterval(function() {
+            attempts++;
+            if (attempts > maxAttempts) { clearInterval(timer); return; }
+            try {
+              var cx = (window.innerWidth || document.documentElement.clientWidth) / 2;
+              var cy = (window.innerHeight || document.documentElement.clientHeight) / 2;
+              clickAt(cx, cy);
+              clickAt(cx, cy - 40);
+              clickAt(cx, cy + 40);
+              clickAt(cx - 40, cy);
+              clickAt(cx + 40, cy);
+              for (var s = 0; s < selectors.length; s++) {
+                var els = document.querySelectorAll(selectors[s]);
+                for (var j = 0; j < els.length; j++) {
+                  try { els[j].click(); } catch (e) {}
+                }
+              }
+              var videos = document.querySelectorAll('video');
+              for (var i = 0; i < videos.length; i++) {
+                var v = videos[i];
+                try {
+                  var p = v.play();
+                  if (p && p.catch) p.catch(function() {
+                    try { v.muted = true; v.play(); } catch (e) {}
+                  });
+                } catch (e) {}
+              }
+              for (var k = 0; k < videos.length; k++) {
+                if (!videos[k].paused && videos[k].currentTime > 0) {
+                  clearInterval(timer);
+                  return;
+                }
+              }
+            } catch (e) {}
+          }, 500);
+        })();
+      """,
+      injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+      forMainFrameOnly: false,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    // iframe-playback fallback: show the embed in a visible webview and let
+    // the user watch in the page itself (used when native extraction errors
+    // but the iframe plays fine).
+    if (widget.iframePlayback) {
+      return Scaffold(
+        backgroundColor: Colors.black,
+        body: Stack(
+          children: [
+            InAppWebView(
+              initialUrlRequest: URLRequest(url: WebUri(_currentUrl)),
+              initialSettings: _wvSettings,
+              initialUserScripts: UnmodifiableListView<UserScript>([
+                UserScript(
+                  source:
+                      "sessionStorage.setItem('ads-enabled-session', 'false');",
+                  injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+                ),
+                _autoClickUserScript(),
+              ]),
+              onWebViewCreated: (controller) {
+                controller.addJavaScriptHandler(
+                  handlerName: 'progress',
+                  callback: (args) {
+                    if (args.isNotEmpty && args.first is Map) {
+                      _handleProgress(Map<String, dynamic>.from(args.first));
+                    }
+                  },
+                );
+              },
+            ),
+            Positioned(
+              top: 8,
+              left: 8,
+              child: IconButton(
+                icon: const Icon(Icons.arrow_back, color: Colors.white),
+                onPressed: () => Navigator.of(context).maybePop(),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     // No platform view in the tree — the headless extractor runs in the
     // background. This keeps the Flutter UI thread free so the loading
     // indicator animates smoothly.

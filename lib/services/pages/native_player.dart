@@ -8,7 +8,9 @@ import 'package:app_web_ui/stores/history_store.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
+import 'package:screen_brightness/screen_brightness.dart';
 import 'package:video_player/video_player.dart';
+import 'package:volume_controller/volume_controller.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 class NativePlayerPage extends StatefulWidget {
@@ -75,7 +77,59 @@ class _NativePlayerPageState extends State<NativePlayerPage> {
   // outward (> 1.15) or inward (< 0.85).
   double _pinchScale = 1.0;
 
+  // Vertical-drag brightness (left half) / volume (right half), like
+  // MX Player / YouTube. `_vDragKind` is 'brightness' | 'volume' | null.
+  // `_vDragValue` is the live 0..1 value shown in the overlay.
+  String? _vDragKind;
+  double _vDragValue = 0;
+  Timer? _vDragHideTimer;
+
   static const Duration _seekStep = Duration(seconds: 10);
+
+  Future<void> _onVerticalDragStart(String kind) async {
+    double start;
+    try {
+      start = kind == 'brightness'
+          ? await ScreenBrightness().application
+          : await VolumeController.instance.getVolume();
+    } catch (_) {
+      start = 0.5;
+    }
+    if (!mounted) return;
+    _vDragHideTimer?.cancel();
+    setState(() {
+      _vDragKind = kind;
+      _vDragValue = start.clamp(0.0, 1.0);
+    });
+  }
+
+  void _onVerticalDragUpdate(double primaryDelta) {
+    if (_vDragKind == null) return;
+    // Full-height swipe ≈ full 0..1 range. Up = increase.
+    final h = MediaQuery.of(context).size.height;
+    final next = (_vDragValue - primaryDelta / h).clamp(0.0, 1.0);
+    setState(() => _vDragValue = next);
+    // Guard against MissingPluginException / unsupported devices — the
+    // overlay still tracks the gesture even if the platform call no-ops.
+    try {
+      if (_vDragKind == 'brightness') {
+        ScreenBrightness()
+            .setApplicationScreenBrightness(next)
+            .catchError((_) {});
+      } else {
+        VolumeController.instance.setVolume(next).catchError((_) {});
+      }
+    } catch (_) {}
+  }
+
+  void _onVerticalDragEnd() {
+    // Keep the indicator on-screen briefly after the finger lifts.
+    _vDragHideTimer?.cancel();
+    _vDragHideTimer = Timer(const Duration(milliseconds: 500), () {
+      if (!mounted) return;
+      setState(() => _vDragKind = null);
+    });
+  }
 
   void _seekBy(Duration delta) {
     final c = _controller;
@@ -105,6 +159,8 @@ class _NativePlayerPageState extends State<NativePlayerPage> {
   void initState() {
     super.initState();
     _activeSubtitleUrl = widget.subtitleUrl;
+    // Suppress the OS volume HUD — our own drag overlay shows the level.
+    VolumeController.instance.showSystemUI = false;
     WakelockPlus.enable();
     // Always start in landscape; the rotate button in the controls overlay
     // lets the user unlock to allow auto-rotation if they want portrait.
@@ -169,6 +225,9 @@ class _NativePlayerPageState extends State<NativePlayerPage> {
     _hideTimer?.cancel();
     final currentServer =
         widget.sourceUrl == null ? null : streamServerForUrl(widget.sourceUrl!);
+    // 'main' | 'source' | 'subtitles' — drives the in-place drill-down.
+    String view = 'main';
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -178,94 +237,177 @@ class _NativePlayerPageState extends State<NativePlayerPage> {
       ),
       builder: (ctx) {
         final maxH = MediaQuery.of(ctx).size.height * 0.7;
-        return SafeArea(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(maxHeight: maxH),
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
-                    child: Row(
-                      children: const [
-                        Icon(Icons.settings_rounded,
-                            color: Color(0xFFEF0003), size: 22),
-                        SizedBox(width: 10),
-                        Text(
-                          'Settings',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 18,
-                            fontWeight: FontWeight.w700,
-                          ),
+        return StatefulBuilder(
+          builder: (ctx, setSheet) {
+            final subtitleValue = _activeSubtitleUrl == null
+                ? 'Off'
+                : _subtitleLabel(_activeSubtitleUrl!);
+
+            Widget header(String title, {bool showBack = false}) => Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 12, 20, 14),
+                  child: Row(
+                    children: [
+                      if (showBack)
+                        IconButton(
+                          icon: const Icon(Icons.arrow_back_rounded,
+                              color: Colors.white, size: 22),
+                          onPressed: () => setSheet(() => view = 'main'),
+                        )
+                      else
+                        const SizedBox(width: 8),
+                      Icon(
+                        showBack
+                            ? (title == 'Source'
+                                ? Icons.dns_rounded
+                                : Icons.subtitles_rounded)
+                            : Icons.settings_rounded,
+                        color: const Color(0xFFEF0003),
+                        size: 22,
+                      ),
+                      const SizedBox(width: 10),
+                      Text(
+                        title,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
-                  _sectionHeader('Source'),
-                  for (final s in streamServers)
-                    _settingsRow(
-                      label: s.name,
-                      icon: Icons.play_circle_outline_rounded,
-                      selected: s == currentServer,
-                      onTap: () => _switchServer(s),
-                    ),
-                  const SizedBox(height: 12),
-                  _sectionHeader('Subtitles'),
+                );
+
+            final List<Widget> children;
+            if (view == 'source') {
+              children = [
+                header('Source', showBack: true),
+                for (final s in streamServers)
                   _settingsRow(
-                    label: 'Off',
-                    icon: Icons.subtitles_off_rounded,
-                    selected: _activeSubtitleUrl == null,
-                    onTap: () {
-                      Navigator.of(ctx).pop();
-                      _setSubtitle(null);
-                    },
+                    label: s.name,
+                    icon: Icons.play_circle_outline_rounded,
+                    selected: s == currentServer,
+                    onTap: () => _switchServer(s),
                   ),
-                  if (widget.subtitleUrls.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.fromLTRB(20, 4, 20, 12),
-                      child: Text(
-                        'No subtitle tracks captured.',
-                        style: TextStyle(
-                            color: Colors.white38, fontSize: 12.5),
-                      ),
-                    )
-                  else
-                    for (final url in widget.subtitleUrls)
-                      _settingsRow(
-                        label: _subtitleLabel(url),
-                        icon: Icons.subtitles_rounded,
-                        selected: _activeSubtitleUrl == url,
-                        onTap: () {
-                          Navigator.of(ctx).pop();
-                          _setSubtitle(url);
-                        },
-                      ),
-                  const SizedBox(height: 8),
-                ],
+                const SizedBox(height: 8),
+              ];
+            } else if (view == 'subtitles') {
+              children = [
+                header('Subtitles', showBack: true),
+                _settingsRow(
+                  label: 'Off',
+                  icon: Icons.subtitles_off_rounded,
+                  selected: _activeSubtitleUrl == null,
+                  onTap: () {
+                    Navigator.of(ctx).pop();
+                    _setSubtitle(null);
+                  },
+                ),
+                if (widget.subtitleUrls.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(20, 4, 20, 12),
+                    child: Text(
+                      'No subtitle tracks captured.',
+                      style: TextStyle(color: Colors.white38, fontSize: 12.5),
+                    ),
+                  )
+                else
+                  for (final url in widget.subtitleUrls)
+                    _settingsRow(
+                      label: _subtitleLabel(url),
+                      icon: Icons.subtitles_rounded,
+                      selected: _activeSubtitleUrl == url,
+                      onTap: () {
+                        Navigator.of(ctx).pop();
+                        _setSubtitle(url);
+                      },
+                    ),
+                const SizedBox(height: 8),
+              ];
+            } else {
+              // Main menu — two options that drill into their lists.
+              children = [
+                header('Settings'),
+                _settingsNavRow(
+                  icon: Icons.dns_rounded,
+                  label: 'Source',
+                  value: currentServer?.name ?? 'Default',
+                  onTap: () => setSheet(() => view = 'source'),
+                ),
+                _settingsNavRow(
+                  icon: Icons.subtitles_rounded,
+                  label: 'Subtitles',
+                  value: subtitleValue,
+                  onTap: () => setSheet(() => view = 'subtitles'),
+                ),
+                const SizedBox(height: 8),
+              ];
+            }
+
+            return SafeArea(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxHeight: maxH),
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: children,
+                  ),
+                ),
               ),
-            ),
-          ),
+            );
+          },
         );
       },
     ).whenComplete(_scheduleHideControls);
   }
 
-  Widget _sectionHeader(String text) => Padding(
-        padding: const EdgeInsets.fromLTRB(20, 4, 20, 6),
-        child: Text(
-          text.toUpperCase(),
-          style: const TextStyle(
-            color: Colors.white54,
-            fontSize: 11.5,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 1.4,
-          ),
+  // A top-level settings entry: icon + label on the left, current value +
+  // chevron on the right. Tapping drills into that option's list.
+  Widget _settingsNavRow({
+    required IconData icon,
+    required String label,
+    required String value,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        child: Row(
+          children: [
+            Icon(icon, color: Colors.white70, size: 20),
+            const SizedBox(width: 14),
+            Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 14.5,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            const Spacer(),
+            Flexible(
+              child: Text(
+                value,
+                textAlign: TextAlign.right,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Color(0xFFEF0003),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            const Icon(Icons.chevron_right_rounded,
+                color: Colors.white38, size: 20),
+          ],
         ),
-      );
+      ),
+    );
+  }
 
   Widget _settingsRow({
     required String label,
@@ -336,6 +478,32 @@ class _NativePlayerPageState extends State<NativePlayerPage> {
       ),
     );
   }
+  // Native playback failed → open the original embed in a visible webview
+  // (the iframe), which the content plays fine in. pushReplacement so backing
+  // out returns to the detail page, not the broken native player.
+  void _openIframeFallback() {
+    final src = widget.sourceUrl;
+    if (src == null) return;
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (_) => MyWidget(
+          url: src,
+          tmdbId: widget.tmdbId,
+          mediaType: widget.mediaType,
+          seasonNumber: widget.seasonNumber,
+          episodeNumber: widget.episodeNumber,
+          initialProgressSeconds:
+              _controller?.value.position.inSeconds ??
+                  widget.initialProgressSeconds,
+          title: widget.title,
+          posterPath: widget.posterPath,
+          backdropPath: widget.backdropPath,
+          iframePlayback: true,
+        ),
+      ),
+    );
+  }
+
   void _toggleLandscapeLock() {
     setState(() => _landscapeLocked = !_landscapeLocked);
     SystemChrome.setPreferredOrientations(
@@ -360,12 +528,24 @@ class _NativePlayerPageState extends State<NativePlayerPage> {
           controller = VideoPlayerController.file(File(local));
         }
       } else {
+        // Always send a browser User-Agent — some CDNs 403 segment requests
+        // without one, which surfaces as a source exception mid-playback.
+        final headers = Map<String, String>.from(widget.httpHeaders);
+        headers.putIfAbsent(
+          'User-Agent',
+          () => 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 '
+              '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+        );
         controller = VideoPlayerController.networkUrl(
           Uri.parse(widget.videoUrl),
-          httpHeaders: widget.httpHeaders,
+          httpHeaders: headers,
         );
       }
       await controller.initialize();
+      // Watch for errors that surface AFTER initialize() succeeds — e.g.
+      // ExoPlayer rejecting segments/codecs once playback actually starts.
+      // initialize() returning fine doesn't guarantee the source plays.
+      controller.addListener(_onControllerUpdate);
 
       if (widget.subtitleUrl != null && widget.subtitleUrl!.isNotEmpty) {
         try {
@@ -383,10 +563,10 @@ class _NativePlayerPageState extends State<NativePlayerPage> {
       }
       await controller.play();
 
-      // Tell the backend this source worked for this title. The global
-      // ranking it builds is what other users' detail pages will use to
-      // pre-select the most reliable provider.
-      _recordServerSuccess();
+      // NOTE: we deliberately do NOT record a server "success" here — play()
+      // returning doesn't mean playback works (a source exception can still
+      // fire). _onControllerUpdate records the vote only once real progress
+      // is observed, so we don't reward sources that error immediately.
 
       _saveTimer = Timer.periodic(const Duration(seconds: 10), (_) => _saveProgress());
       _scheduleHideControls();
@@ -396,6 +576,29 @@ class _NativePlayerPageState extends State<NativePlayerPage> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = e.toString());
+    }
+  }
+
+  bool _votedSuccess = false;
+
+  // Fires on every controller value change. Two jobs:
+  //  1. Surface a source error that only appears once playback starts.
+  //  2. Record the server "success" vote once real progress is seen (≥3s),
+  //     so sources that error immediately don't get rewarded as defaults.
+  void _onControllerUpdate() {
+    final c = _controller;
+    if (c == null) return;
+    if (c.value.hasError && _error == null) {
+      setState(() =>
+          _error = c.value.errorDescription ?? 'Playback error');
+      return;
+    }
+    if (!_votedSuccess &&
+        c.value.isInitialized &&
+        c.value.isPlaying &&
+        c.value.position.inSeconds >= 3) {
+      _votedSuccess = true;
+      _recordServerSuccess();
     }
   }
 
@@ -480,6 +683,9 @@ class _NativePlayerPageState extends State<NativePlayerPage> {
     _hideTimer?.cancel();
     _saveTimer?.cancel();
     _seekIndicatorTimer?.cancel();
+    _vDragHideTimer?.cancel();
+    // Hand brightness control back to the system.
+    ScreenBrightness().resetApplicationScreenBrightness().catchError((_) {});
     _saveProgress();
     _controller?.dispose();
     WakelockPlus.disable();
@@ -503,6 +709,8 @@ class _NativePlayerPageState extends State<NativePlayerPage> {
 
   Widget _buildBody() {
     if (_error != null) {
+      final canIframe =
+          widget.localFilePath == null && widget.sourceUrl != null;
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
@@ -512,14 +720,31 @@ class _NativePlayerPageState extends State<NativePlayerPage> {
               const Icon(Icons.error_outline, color: Colors.white70, size: 48),
               const SizedBox(height: 12),
               Text(
-                'Could not play stream natively.\n$_error',
+                canIframe
+                    ? 'This source won\'t play in the native player.\n'
+                        'Try watching it in the web player instead.'
+                    : 'Could not play stream natively.\n$_error',
                 textAlign: TextAlign.center,
                 style: const TextStyle(color: Colors.white70),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 18),
+              if (canIframe)
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFEF0003),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20, vertical: 12),
+                  ),
+                  onPressed: _openIframeFallback,
+                  icon: const Icon(Icons.public_rounded, size: 18),
+                  label: const Text('Play in web player'),
+                ),
+              const SizedBox(height: 8),
               TextButton(
                 onPressed: () => Navigator.of(context).pop(),
-                child: const Text('Back', style: TextStyle(color: Color(0xFFEF0003))),
+                child: const Text('Back',
+                    style: TextStyle(color: Colors.white54)),
               ),
             ],
           ),
@@ -582,6 +807,12 @@ class _NativePlayerPageState extends State<NativePlayerPage> {
                   onTap: _toggleControls,
                   onDoubleTapDown: (_) => _seekBy(-_seekStep),
                   onDoubleTap: () {},
+                  // Left half — slide vertically to control brightness.
+                  onVerticalDragStart: (_) =>
+                      _onVerticalDragStart('brightness'),
+                  onVerticalDragUpdate: (d) =>
+                      _onVerticalDragUpdate(d.primaryDelta ?? 0),
+                  onVerticalDragEnd: (_) => _onVerticalDragEnd(),
                 ),
               ),
               Expanded(
@@ -590,6 +821,11 @@ class _NativePlayerPageState extends State<NativePlayerPage> {
                   onTap: _toggleControls,
                   onDoubleTapDown: (_) => _seekBy(_seekStep),
                   onDoubleTap: () {},
+                  // Right half — slide vertically to control volume.
+                  onVerticalDragStart: (_) => _onVerticalDragStart('volume'),
+                  onVerticalDragUpdate: (d) =>
+                      _onVerticalDragUpdate(d.primaryDelta ?? 0),
+                  onVerticalDragEnd: (_) => _onVerticalDragEnd(),
                 ),
               ),
             ],
@@ -613,6 +849,9 @@ class _NativePlayerPageState extends State<NativePlayerPage> {
               ],
             ),
           ),
+        // Brightness / volume drag indicator.
+        if (_vDragKind != null)
+          IgnorePointer(child: Center(child: _verticalDragIndicator())),
         // Captions — only this strip rebuilds as the caption text changes.
         Positioned(
           left: 0,
@@ -795,6 +1034,63 @@ class _NativePlayerPageState extends State<NativePlayerPage> {
   // big fast-forward / rewind icon. Fades and scales in, holds briefly,
   // then fades out. The TweenAnimationBuilder's key changes each seek so
   // the animation re-fires for rapid double-double-taps.
+  // Pill overlay shown while sliding for brightness (left) / volume (right):
+  // an icon + a vertical fill bar reflecting the live 0..1 value.
+  Widget _verticalDragIndicator() {
+    final isBrightness = _vDragKind == 'brightness';
+    final pct = (_vDragValue * 100).round();
+    final IconData icon = isBrightness
+        ? (_vDragValue < 0.5
+            ? Icons.brightness_low_rounded
+            : Icons.brightness_high_rounded)
+        : (_vDragValue <= 0.0
+            ? Icons.volume_off_rounded
+            : _vDragValue < 0.5
+                ? Icons.volume_down_rounded
+                : Icons.volume_up_rounded);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: Colors.white, size: 30),
+          const SizedBox(height: 12),
+          // Vertical fill bar.
+          SizedBox(
+            width: 6,
+            height: 110,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(3),
+              child: Stack(
+                alignment: Alignment.bottomCenter,
+                children: [
+                  Container(color: Colors.white24),
+                  FractionallySizedBox(
+                    heightFactor: _vDragValue.clamp(0.0, 1.0),
+                    child: Container(color: const Color(0xFFEF0003)),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            '$pct%',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _animatedSeekOverlay({required bool forward}) {
     return TweenAnimationBuilder<double>(
       key: ValueKey('seek-$_seekCount'),
