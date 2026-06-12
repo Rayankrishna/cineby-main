@@ -879,6 +879,29 @@ class _NativePlayerPageState extends State<NativePlayerPage> {
             ),
           ),
         ),
+        // Buffering spinner — centred, shown whenever the player is waiting
+        // for data mid-playback so it's clear the video is loading (not
+        // frozen). Only this widget rebuilds on the buffering flag.
+        Positioned.fill(
+          child: IgnorePointer(
+            child: ValueListenableBuilder<VideoPlayerValue>(
+              valueListenable: c,
+              builder: (_, v, __) {
+                if (!v.isBuffering) return const SizedBox.shrink();
+                return const Center(
+                  child: SizedBox(
+                    width: 48,
+                    height: 48,
+                    child: CircularProgressIndicator(
+                      color: Color(0xFFEF0003),
+                      strokeWidth: 3,
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
         if (_controlsVisible) _buildControls(c),
       ],
       ),
@@ -965,19 +988,25 @@ class _NativePlayerPageState extends State<NativePlayerPage> {
           ),
           const Spacer(),
           // Play/pause icon — only this widget rebuilds when isPlaying flips.
+          // Hidden while buffering so the central loading spinner shows alone.
           Center(
             child: ValueListenableBuilder<VideoPlayerValue>(
               valueListenable: c,
-              builder: (_, v, __) => IconButton(
-                iconSize: 64,
-                icon: Icon(
-                  v.isPlaying
-                      ? Icons.pause_circle_filled
-                      : Icons.play_circle_filled,
-                  color: Colors.white,
-                ),
-                onPressed: _togglePlay,
-              ),
+              builder: (_, v, __) {
+                if (v.isBuffering) {
+                  return const SizedBox(width: 64, height: 64);
+                }
+                return IconButton(
+                  iconSize: 64,
+                  icon: Icon(
+                    v.isPlaying
+                        ? Icons.pause_circle_filled
+                        : Icons.play_circle_filled,
+                    color: Colors.white,
+                  ),
+                  onPressed: _togglePlay,
+                );
+              },
             ),
           ),
           const Spacer(),

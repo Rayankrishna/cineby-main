@@ -6,10 +6,13 @@ export interface AccessTokenPayload {
   email: string;
 }
 
+// Access token intentionally has NO expiry — omitting `expiresIn` means the
+// JWT carries no `exp` claim, so verifyAccessToken never rejects it for age.
+// Users stay signed in indefinitely (no silent 15-minute logouts). Trade-off:
+// these tokens can't be aged out, only invalidated by rotating
+// JWT_ACCESS_SECRET. Acceptable for this app's "stay logged in" requirement.
 export const signAccessToken = (payload: AccessTokenPayload) =>
-  jwt.sign(payload, env.JWT_ACCESS_SECRET, {
-    expiresIn: env.ACCESS_TOKEN_TTL as SignOptions['expiresIn'],
-  });
+  jwt.sign(payload, env.JWT_ACCESS_SECRET);
 
 export const signRefreshToken = (payload: AccessTokenPayload) =>
   jwt.sign(payload, env.JWT_REFRESH_SECRET, {
