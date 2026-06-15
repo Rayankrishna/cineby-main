@@ -14,12 +14,16 @@ class GenreResultsPage extends StatefulWidget {
   final int genreId;
   final String genreName;
   final String mediaType; // 'movie' or 'tv'
+  // Extra discover filters appended to the query, e.g. for Anime:
+  // '&with_origin_country=JP|CN'. Leave empty for a plain genre browse.
+  final String extraQuery;
 
   const GenreResultsPage({
     super.key,
     required this.genreId,
     required this.genreName,
     this.mediaType = 'movie',
+    this.extraQuery = '',
   });
 
   @override
@@ -62,9 +66,9 @@ class _GenreResultsPageState extends State<GenreResultsPage> {
   String _pagedUrl(int page) {
     return widget.mediaType == 'tv'
         ? '$_tmdbBase/discover/tv?api_key=$tmdbApiKey'
-            '&with_genres=${widget.genreId}&sort_by=popularity.desc&language=en&page=$page'
+            '&with_genres=${widget.genreId}${widget.extraQuery}&sort_by=popularity.desc&language=en&page=$page'
         : '$_tmdbBase/discover/movie?api_key=$tmdbApiKey'
-            '&with_genres=${widget.genreId}&sort_by=popularity.desc&language=en&page=$page';
+            '&with_genres=${widget.genreId}${widget.extraQuery}&sort_by=popularity.desc&language=en&page=$page';
   }
 
   Future<void> _loadNextPage() async {

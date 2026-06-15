@@ -13,6 +13,9 @@ class MovieDetail {
   final List<Genre> genres;
   final List<CastMember> cast;
   final String? directorName;
+  // IMDb id (e.g. tt0099685) — present at the top level of the TMDB movie
+  // response, used to look up YIFY subtitles without a second request.
+  final String? imdbId;
 
   MovieDetail({
     required this.id,
@@ -29,6 +32,7 @@ class MovieDetail {
     this.genres = const [],
     this.cast = const [],
     this.directorName,
+    this.imdbId,
   });
 
   factory MovieDetail.fromJson(Map<String, dynamic> json) {
@@ -76,6 +80,9 @@ class MovieDetail {
       genres: genresList,
       cast: castList,
       directorName: director,
+      imdbId: json['imdb_id'] as String? ??
+          (json['external_ids'] as Map<String, dynamic>?)?['imdb_id']
+              as String?,
     );
   }
 }

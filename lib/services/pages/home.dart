@@ -322,6 +322,36 @@ class _MyHomePageState extends State<MyHomePage> {
     (37, 'Western'),
   ];
 
+  // One pill in the Categories sheet. Closes the sheet, then runs [onTap].
+  Widget _categoryChip(
+    BuildContext sheetCtx, {
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return SqueezeButton(
+      onTap: () {
+        Navigator.of(sheetCtx).pop();
+        onTap();
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(100),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+        ),
+        child: Text(
+          label,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 13.5,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    );
+  }
+
   void _showCategoriesSheet() {
     _searchFocus.unfocus();
     showModalBottomSheet<void>(
@@ -366,39 +396,32 @@ class _MyHomePageState extends State<MyHomePage> {
                       spacing: 10,
                       runSpacing: 10,
                       children: [
+                        // Anime first — it's a TV discover (genre 16 +
+                        // JP/CN origin) rather than a plain movie genre.
+                        _categoryChip(
+                          ctx,
+                          label: 'Anime',
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const GenreResultsPage(
+                                genreId: 16,
+                                genreName: 'Anime',
+                                mediaType: 'tv',
+                                extraQuery: '&with_origin_country=JP|CN',
+                              ),
+                            ),
+                          ),
+                        ),
                         for (final g in _movieGenres)
-                          SqueezeButton(
-                            onTap: () {
-                              Navigator.of(ctx).pop();
-                              Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder:
-                                      (_) => GenreResultsPage(
-                                        genreId: g.$1,
-                                        genreName: g.$2,
-                                        mediaType: 'movie',
-                                      ),
-                                ),
-                              );
-                            },
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 10,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.06),
-                                borderRadius: BorderRadius.circular(100),
-                                border: Border.all(
-                                  color: Colors.white.withValues(alpha: 0.12),
-                                ),
-                              ),
-                              child: Text(
-                                g.$2,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 13.5,
-                                  fontWeight: FontWeight.w600,
+                          _categoryChip(
+                            ctx,
+                            label: g.$2,
+                            onTap: () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => GenreResultsPage(
+                                  genreId: g.$1,
+                                  genreName: g.$2,
+                                  mediaType: 'movie',
                                 ),
                               ),
                             ),

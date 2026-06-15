@@ -232,6 +232,66 @@ abstract class _DownloadStore with Store {
     }
   }
 
+  /// Same as [startWithExtraction] but races EVERY provider at once and
+  /// downloads from whichever returns a stream first — no fixed embed URL,
+  /// no manual server picking.
+  @action
+  Future<void> startWithRace({
+    required int tmdbId,
+    required String mediaType,
+    int? seasonNumber,
+    int? episodeNumber,
+    String? title,
+    String? posterPath,
+    String? backdropPath,
+  }) async {
+    final placeholder = ActiveDownload(
+      tmdbId: tmdbId,
+      mediaType: mediaType,
+      seasonNumber: seasonNumber,
+      episodeNumber: episodeNumber,
+      title: title,
+      phase: 'extracting',
+    );
+    active.removeWhere((a) => a.key == placeholder.key);
+    active.add(placeholder);
+    _refreshWakelock();
+
+    try {
+      final raced = await raceServersForStream(
+        tmdbId: tmdbId,
+        mediaType: mediaType,
+        seasonNumber: seasonNumber,
+        episodeNumber: episodeNumber,
+      );
+      active.removeWhere((a) => a.key == placeholder.key);
+      if (raced == null) {
+        active.add(ActiveDownload(
+          tmdbId: tmdbId,
+          mediaType: mediaType,
+          seasonNumber: seasonNumber,
+          episodeNumber: episodeNumber,
+          title: title,
+          error: 'No source returned a stream.',
+        ));
+        return;
+      }
+      await start(
+        tmdbId: tmdbId,
+        mediaType: mediaType,
+        url: raced.stream.videoUrl,
+        headers: raced.stream.headers,
+        seasonNumber: seasonNumber,
+        episodeNumber: episodeNumber,
+        title: title,
+        posterPath: posterPath,
+        backdropPath: backdropPath,
+      );
+    } finally {
+      _refreshWakelock();
+    }
+  }
+
   /// Cancel an in-progress download, wipe its half-downloaded files, and
   /// drop it from the active list. Safe to call from any UI tap.
   @action

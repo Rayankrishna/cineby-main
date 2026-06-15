@@ -3,8 +3,6 @@ import 'package:app_web_ui/services/page_transitions.dart';
 import 'package:app_web_ui/services/pages/browse_results_page.dart';
 import 'package:app_web_ui/services/pages/webview.dart';
 import 'package:app_web_ui/services/responsive.dart';
-import 'package:app_web_ui/services/server_vote_service.dart';
-import 'package:app_web_ui/services/stream_servers.dart';
 import 'package:app_web_ui/services/toast.dart';
 import 'package:app_web_ui/shared/squeeze_button.dart';
 import 'package:app_web_ui/stores/download_store.dart';
@@ -27,86 +25,6 @@ class _TvDetailPageState extends State<TvDetailPage> {
   final TvDetailStore _store = TvDetailStore();
   HistoryItem? _lastWatched;
   bool _lastWatchedLoaded = false;
-  // User-selected stream provider. Defaults to streamServers.first; tapping
-  // the Source pill below the Play button swaps it for the next launch.
-  StreamServer _selectedServer = streamServers.first;
-
-  void _showSourcePicker() {
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: const Color(0xFF1F1E26),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Padding(
-                padding: EdgeInsets.fromLTRB(20, 12, 20, 8),
-                child: Row(
-                  children: [
-                    Icon(Icons.dns_rounded,
-                        color: Color(0xFFEF0003), size: 22),
-                    SizedBox(width: 10),
-                    Text('Choose source',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
-                        )),
-                  ],
-                ),
-              ),
-              for (final s in streamServers)
-                InkWell(
-                  onTap: () {
-                    Navigator.of(ctx).pop();
-                    setState(() => _selectedServer = s);
-                  },
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 20, vertical: 12),
-                    child: Row(
-                      children: [
-                        Icon(Icons.play_circle_outline_rounded,
-                            color: s == _selectedServer
-                                ? const Color(0xFFEF0003)
-                                : Colors.white70,
-                            size: 20),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Text(
-                            s.name,
-                            style: TextStyle(
-                              color: s == _selectedServer
-                                  ? const Color(0xFFEF0003)
-                                  : Colors.white,
-                              fontSize: 14.5,
-                              fontWeight: s == _selectedServer
-                                  ? FontWeight.w600
-                                  : FontWeight.w400,
-                            ),
-                          ),
-                        ),
-                        if (s == _selectedServer)
-                          const Icon(Icons.check_rounded,
-                              color: Color(0xFFEF0003), size: 18),
-                      ],
-                    ),
-                  ),
-                ),
-              const SizedBox(height: 8),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 
   @override
   void initState() {
@@ -114,23 +32,6 @@ class _TvDetailPageState extends State<TvDetailPage> {
     _store.fetchTvDetail(widget.tvId);
     watchlistStore.checkContains(widget.tvId, 'tv');
     _loadLastWatched();
-    _loadBestServer();
-  }
-
-  /// Ask the backend which provider has been working best for this show
-  /// and pre-select it as the default Source. Falls back to the local
-  /// default if there are no votes yet.
-  Future<void> _loadBestServer() async {
-    final name = await ServerVoteService.instance.bestServerName(
-      tmdbId: widget.tvId,
-      mediaType: 'tv',
-    );
-    if (!mounted || name == null) return;
-    final match = streamServers
-        .where((s) => s.name == name)
-        .cast<StreamServer?>()
-        .firstWhere((s) => s != null, orElse: () => null);
-    if (match != null) setState(() => _selectedServer = match);
   }
 
   Future<void> _loadLastWatched() async {
@@ -148,13 +49,10 @@ class _TvDetailPageState extends State<TvDetailPage> {
   }
 
   void _downloadEpisode(int season, int episode) {
-    // Fire-and-forget. Backing out of the TV detail page mid-extraction
-    // no longer cancels the download.
+    // Fire-and-forget. Races every provider and downloads from whichever
+    // returns a stream first. Backing out mid-extraction doesn't cancel it.
     final tv = _store.tvDetail;
-    final embedUrl =
-        _selectedServer.buildUrl(widget.tvId, 'tv', season, episode);
-    downloadStore.startWithExtraction(
-      embedUrl: embedUrl,
+    downloadStore.startWithRace(
       tmdbId: widget.tvId,
       mediaType: 'tv',
       seasonNumber: season,
@@ -186,9 +84,8 @@ class _TvDetailPageState extends State<TvDetailPage> {
     final runtime = runtimeMinutes ?? ep?.runtime;
     final durationSeconds = (runtime != null && runtime > 0) ? runtime * 60 : null;
 
-    // User explicitly chose a source via the pill below the Play button.
-    // Trust the selection; if it's down, the in-loading source switcher
-    // handles recovery.
+    // No source picking — MyWidget races every provider and uses whichever
+    // returns first.
     showPlayerHintToast();
     historyStore.record(
       tmdbId: widget.tvId,
@@ -201,12 +98,10 @@ class _TvDetailPageState extends State<TvDetailPage> {
       posterPath: tv?.posterPath,
       backdropPath: tv?.backdropPath,
     );
-    final url = _selectedServer.buildUrl(widget.tvId, 'tv', season, episode);
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => MyWidget(
-          url: url,
           tmdbId: widget.tvId,
           mediaType: 'tv',
           seasonNumber: season,
@@ -471,46 +366,6 @@ class _TvDetailPageState extends State<TvDetailPage> {
                         color: Colors.black,
                       ),
                     ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 10),
-          // Source pill — tap to swap providers before launching.
-          Align(
-            alignment: Alignment.centerLeft,
-            child: SqueezeButton(
-              onTap: _showSourcePicker,
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.06),
-                  borderRadius: BorderRadius.circular(100),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.12),
-                    width: 1,
-                  ),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.dns_rounded,
-                        color: Color(0xFFEF0003), size: 16),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Source: ${_selectedServer.name}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: -0.1,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    const Icon(Icons.keyboard_arrow_down_rounded,
-                        color: Colors.white54, size: 18),
                   ],
                 ),
               ),

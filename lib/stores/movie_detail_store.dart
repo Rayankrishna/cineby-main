@@ -22,8 +22,9 @@ abstract class _MovieDetailStore with Store {
     isLoading = true;
     errorMessage = null;
     try {
-      final response =
-          await tmdbDio.get('$movieDetailUrl/$id$movieDetailParams');
+      final response = await tmdbDio.get(
+        '$movieDetailUrl/$id$movieDetailParams',
+      );
       if (response.statusCode == 200) {
         movieDetail = MovieDetail.fromJson(response.data);
       } else {

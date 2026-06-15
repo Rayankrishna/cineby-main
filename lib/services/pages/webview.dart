@@ -3,6 +3,7 @@ import 'dart:collection';
 import 'dart:io' show Platform;
 import 'package:app_web_ui/services/config.dart';
 import 'package:app_web_ui/services/pages/native_player.dart';
+import 'package:app_web_ui/services/stream_extractor.dart';
 import 'package:app_web_ui/services/stream_servers.dart';
 import 'package:app_web_ui/shared/squeeze_button.dart';
 import 'package:app_web_ui/stores/download_store.dart';
@@ -25,6 +26,10 @@ class MyWidget extends StatefulWidget {
   final String? title;
   final String? posterPath;
   final String? backdropPath;
+  // IMDb id (from the TMDB detail response) — used for YIFY subtitles in the
+  // native player without a second TMDB request.
+  final String? imdbId;
+
   /// When true, extraction kicks off a background download via
   /// DownloadStore.start(...) instead of opening the native player. The
   /// route pops back to the caller as soon as the URL is captured.
@@ -48,6 +53,7 @@ class MyWidget extends StatefulWidget {
     this.title,
     this.posterPath,
     this.backdropPath,
+    this.imdbId,
     this.downloadMode = false,
     this.iframePlayback = false,
   });
@@ -92,6 +98,12 @@ class _MyWidgetState extends State<MyWidget> {
   bool _handedOff = false;
   Timer? _handoffTimer;
 
+  // Race state: every provider is extracted simultaneously; the first to
+  // return a stream wins and the rest are cancelled. `_allFailed` flips true
+  // only if every provider fails or times out.
+  bool _allFailed = false;
+  bool _racing = false;
+
   @override
   void initState() {
     super.initState();
@@ -116,8 +128,86 @@ class _MyWidgetState extends State<MyWidget> {
     // iframe-playback mode shows the embed directly in a visible webview —
     // no extraction, no native handoff.
     if (!widget.iframePlayback) {
-      _startHeadlessExtractor();
+      // Prefer racing every provider at once (needs tmdbId + mediaType to
+      // build all the URLs). Fall back to single-URL extraction otherwise.
+      if (widget.tmdbId != null && widget.mediaType != null) {
+        _startRace();
+      } else {
+        _startHeadlessExtractor();
+      }
     }
+  }
+
+  /// Extract from every provider simultaneously; first to return a stream
+  /// wins and the rest are torn down. No manual server picking.
+  Future<void> _startRace() async {
+    setState(() {
+      _racing = true;
+      _allFailed = false;
+    });
+    final raced = await raceServersForStream(
+      tmdbId: widget.tmdbId!,
+      mediaType: widget.mediaType!,
+      seasonNumber: widget.seasonNumber,
+      episodeNumber: widget.episodeNumber,
+    );
+    if (!mounted || _handedOff) return;
+    if (raced == null) {
+      setState(() {
+        _racing = false;
+        _allFailed = true;
+      });
+      return;
+    }
+    // Adopt the winner's stream + the embed URL it came from (the latter is
+    // used as `sourceUrl` so the native player records a vote for it).
+    _currentUrl = raced.embedUrl;
+    _streamUrl = raced.stream.videoUrl;
+    _streamHeaders
+      ..clear()
+      ..addAll(raced.stream.headers);
+    _subtitleUrl = raced.stream.subtitleUrl;
+    _subtitleUrls
+      ..clear()
+      ..addAll(raced.stream.subtitleUrls);
+    _openNativePlayer();
+  }
+
+  /// Re-run the race (from the all-failed state).
+  void _retryRace() {
+    if (widget.tmdbId != null && widget.mediaType != null) {
+      _startRace();
+    }
+  }
+
+  /// Last-resort fallback: open the winning-or-first provider's embed in a
+  /// visible webview so the user can watch in the page itself.
+  void _watchInBrowser() {
+    final fallback = streamServers.first.buildUrl(
+      widget.tmdbId!,
+      widget.mediaType!,
+      widget.seasonNumber,
+      widget.episodeNumber,
+    );
+    Navigator.of(context).pushReplacement(
+      PageRouteBuilder(
+        transitionDuration: Duration.zero,
+        pageBuilder:
+            (_, __, ___) => MyWidget(
+              url: fallback,
+              tmdbId: widget.tmdbId,
+              mediaType: widget.mediaType,
+              seasonNumber: widget.seasonNumber,
+              episodeNumber: widget.episodeNumber,
+              durationSeconds: widget.durationSeconds,
+              initialProgressSeconds: widget.initialProgressSeconds,
+              title: widget.title,
+              posterPath: widget.posterPath,
+              backdropPath: widget.backdropPath,
+              iframePlayback: true,
+            ),
+      ),
+    );
   }
 
   Future<void> _startHeadlessExtractor() async {
@@ -129,8 +219,7 @@ class _MyWidgetState extends State<MyWidget> {
       initialSettings: _wvSettings,
       initialUserScripts: UnmodifiableListView<UserScript>([
         UserScript(
-          source:
-              "sessionStorage.setItem('ads-enabled-session', 'false');",
+          source: "sessionStorage.setItem('ads-enabled-session', 'false');",
           injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
         ),
         UserScript(
@@ -170,22 +259,21 @@ class _MyWidgetState extends State<MyWidget> {
           },
         );
       },
-      shouldInterceptRequest: Platform.isAndroid
-          ? (controller, req) async {
-              try {
-                final url = req.url;
-                final headers = <String, String>{};
-                req.headers?.forEach((k, v) => headers[k] = v);
-                _captureRequest(Uri.parse(url.toString()), headers);
-              } catch (_) {}
-              return null;
-            }
-          : null,
+      shouldInterceptRequest:
+          Platform.isAndroid
+              ? (controller, req) async {
+                try {
+                  final url = req.url;
+                  final headers = <String, String>{};
+                  req.headers?.forEach((k, v) => headers[k] = v);
+                  _captureRequest(Uri.parse(url.toString()), headers);
+                } catch (_) {}
+                return null;
+              }
+              : null,
     );
     await _headless!.run();
   }
-
-
 
   @override
   void dispose() {
@@ -238,24 +326,25 @@ class _MyWidgetState extends State<MyWidget> {
     );
   }
 
-
-
   // Intercepted from the iframe's HTTP requests. We watch for HLS/MP4
   // playlists and WebVTT subtitle files, plus the headers (especially
   // Referer/Origin) the underlying stream expects.
   void _captureRequest(Uri uri, Map<String, String> headers) {
     final fullLower = uri.toString().toLowerCase();
-    final isVideo = fullLower.contains('.m3u8') ||
+    final isVideo =
+        fullLower.contains('.m3u8') ||
         fullLower.contains('.mp4') ||
         fullLower.contains('.mpd') ||
         fullLower.contains('/manifest') ||
         fullLower.contains('/playlist') ||
         fullLower.contains('master.txt');
     // Skip HLS segments (.ts) — we want the manifest, not chunks.
-    final isSegment = fullLower.contains('.ts?') ||
+    final isSegment =
+        fullLower.contains('.ts?') ||
         fullLower.endsWith('.ts') ||
         fullLower.contains('.m4s');
-    final isSubtitle = fullLower.contains('.vtt') ||
+    final isSubtitle =
+        fullLower.contains('.vtt') ||
         fullLower.contains('.srt') ||
         fullLower.contains('/subtitle') ||
         fullLower.contains('/caption');
@@ -268,8 +357,11 @@ class _MyWidgetState extends State<MyWidget> {
       _streamHeaders.clear();
       headers.forEach((k, v) {
         final lk = k.toLowerCase();
-        if (lk == 'referer' || lk == 'origin' || lk == 'user-agent' ||
-            lk == 'cookie' || lk.startsWith('sec-')) {
+        if (lk == 'referer' ||
+            lk == 'origin' ||
+            lk == 'user-agent' ||
+            lk == 'cookie' ||
+            lk.startsWith('sec-')) {
           _streamHeaders[k] = v;
         }
       });
@@ -280,7 +372,10 @@ class _MyWidgetState extends State<MyWidget> {
       );
       // Give subtitles a brief moment to also be captured before handing off.
       _handoffTimer?.cancel();
-      _handoffTimer = Timer(const Duration(milliseconds: 1200), _openNativePlayer);
+      _handoffTimer = Timer(
+        const Duration(milliseconds: 1200),
+        _openNativePlayer,
+      );
       if (mounted) setState(() {});
     }
     if (isSubtitle) {
@@ -328,23 +423,26 @@ class _MyWidgetState extends State<MyWidget> {
       PageRouteBuilder(
         transitionDuration: Duration.zero,
         reverseTransitionDuration: const Duration(milliseconds: 150),
-        pageBuilder: (_, __, ___) => NativePlayerPage(
-          videoUrl: url,
-          httpHeaders: Map<String, String>.from(_streamHeaders),
-          subtitleUrl: _subtitleUrl,
-          subtitleUrls: List<String>.from(_subtitleUrls),
-          sourceUrl: _currentUrl,
-          title: widget.title,
-          tmdbId: widget.tmdbId,
-          mediaType: widget.mediaType,
-          seasonNumber: widget.seasonNumber,
-          episodeNumber: widget.episodeNumber,
-          initialProgressSeconds: _lastSavedSeconds >= 0
-              ? _lastSavedSeconds
-              : widget.initialProgressSeconds,
-          posterPath: widget.posterPath,
-          backdropPath: widget.backdropPath,
-        ),
+        pageBuilder:
+            (_, __, ___) => NativePlayerPage(
+              videoUrl: url,
+              httpHeaders: Map<String, String>.from(_streamHeaders),
+              subtitleUrl: _subtitleUrl,
+              subtitleUrls: List<String>.from(_subtitleUrls),
+              sourceUrl: _currentUrl,
+              imdbId: widget.imdbId,
+              title: widget.title,
+              tmdbId: widget.tmdbId,
+              mediaType: widget.mediaType,
+              seasonNumber: widget.seasonNumber,
+              episodeNumber: widget.episodeNumber,
+              initialProgressSeconds:
+                  _lastSavedSeconds >= 0
+                      ? _lastSavedSeconds
+                      : widget.initialProgressSeconds,
+              posterPath: widget.posterPath,
+              backdropPath: widget.backdropPath,
+            ),
       ),
     );
   }
@@ -381,118 +479,6 @@ class _MyWidgetState extends State<MyWidget> {
       title: widget.title,
       posterPath: widget.posterPath,
       backdropPath: widget.backdropPath,
-    );
-  }
-
-  void _switchSourceFromLoading(StreamServer server) {
-    if (widget.tmdbId == null || widget.mediaType == null) {
-      Navigator.of(context).pop();
-      return;
-    }
-    Navigator.of(context).pop(); // close the bottom sheet
-    final newUrl = server.buildUrl(
-      widget.tmdbId!,
-      widget.mediaType!,
-      widget.seasonNumber,
-      widget.episodeNumber,
-    );
-    // pushReplacement so the headless extractor on this page is disposed and
-    // a fresh one boots with the new embed URL.
-    Navigator.of(context).pushReplacement(
-      PageRouteBuilder(
-        transitionDuration: Duration.zero,
-        reverseTransitionDuration: const Duration(milliseconds: 150),
-        pageBuilder: (_, __, ___) => MyWidget(
-          url: newUrl,
-          tmdbId: widget.tmdbId,
-          mediaType: widget.mediaType,
-          seasonNumber: widget.seasonNumber,
-          episodeNumber: widget.episodeNumber,
-          durationSeconds: widget.durationSeconds,
-          initialProgressSeconds: widget.initialProgressSeconds,
-          title: widget.title,
-          posterPath: widget.posterPath,
-          backdropPath: widget.backdropPath,
-        ),
-      ),
-    );
-  }
-
-  void _showLoadingSourcePicker() {
-    final currentServer =
-        streamServerForUrl(_currentUrl);
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: const Color(0xFF1F1E26),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Padding(
-                padding: EdgeInsets.fromLTRB(20, 12, 20, 8),
-                child: Row(
-                  children: [
-                    Icon(Icons.dns_rounded,
-                        color: Color(0xFFEF0003), size: 22),
-                    SizedBox(width: 10),
-                    Text(
-                      'Switch source',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              for (final s in streamServers)
-                InkWell(
-                  onTap: () => _switchSourceFromLoading(s),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 20, vertical: 12),
-                    child: Row(
-                      children: [
-                        Icon(Icons.play_circle_outline_rounded,
-                            color: s == currentServer
-                                ? const Color(0xFFEF0003)
-                                : Colors.white70,
-                            size: 20),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Text(
-                            s.name,
-                            style: TextStyle(
-                              color: s == currentServer
-                                  ? const Color(0xFFEF0003)
-                                  : Colors.white,
-                              fontSize: 14.5,
-                              fontWeight: s == currentServer
-                                  ? FontWeight.w600
-                                  : FontWeight.w400,
-                            ),
-                          ),
-                        ),
-                        if (s == currentServer)
-                          const Icon(Icons.check_rounded,
-                              color: Color(0xFFEF0003), size: 18),
-                      ],
-                    ),
-                  ),
-                ),
-              const SizedBox(height: 8),
-            ],
-          ),
-        ),
-      ),
     );
   }
 
@@ -628,7 +614,7 @@ class _MyWidgetState extends State<MyWidget> {
       );
     }
 
-    // No platform view in the tree — the headless extractor runs in the
+    // No platform view in the tree — the headless extractors run in the
     // background. This keeps the Flutter UI thread free so the loading
     // indicator animates smoothly.
     return Scaffold(
@@ -638,68 +624,10 @@ class _MyWidgetState extends State<MyWidget> {
           children: [
             Center(
               child: RepaintBoundary(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const SizedBox(
-                      width: 32,
-                      height: 32,
-                      child: CircularProgressIndicator(
-                        color: Color(0xFFEF0003),
-                        strokeWidth: 2.5,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      _streamUrl == null
-                          ? 'Loading stream…'
-                          : 'Preparing player…',
-                      style: const TextStyle(color: Colors.white70),
-                    ),
-                    const SizedBox(height: 28),
-                    // Mid-flight source switcher — taps cancel the current
-                    // extraction and restart on a different provider. Uses
-                    // SqueezeButton (the app's standard tap widget) instead
-                    // of TextButton because TextButton inside this Stack +
-                    // Center + RepaintBoundary chain was failing to register
-                    // taps on some devices.
-                    SqueezeButton(
-                      onTap: _showLoadingSourcePicker,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 22, vertical: 12),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.08),
-                          borderRadius: BorderRadius.circular(100),
-                          border: Border.all(
-                            color: const Color(0xFFEF0003)
-                                .withValues(alpha: 0.55),
-                            width: 1.2,
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: const [
-                            Icon(Icons.dns_rounded,
-                                color: Color(0xFFEF0003), size: 18),
-                            SizedBox(width: 8),
-                            Text(
-                              'Switch source',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+                child: _allFailed ? _buildFailed() : _buildLoading(),
               ),
             ),
-            // Back chevron — escape hatch if all sources hang.
+            // Back chevron — escape hatch if everything hangs.
             Positioned(
               top: 8,
               left: 8,
@@ -710,6 +638,128 @@ class _MyWidgetState extends State<MyWidget> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildLoading() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const SizedBox(
+          width: 32,
+          height: 32,
+          child: CircularProgressIndicator(
+            color: Color(0xFFEF0003),
+            strokeWidth: 2.5,
+          ),
+        ),
+        const SizedBox(height: 16),
+        Text(
+          _streamUrl != null
+              ? 'Preparing player…'
+              : (_racing ? 'Finding the best source…' : 'Loading stream…'),
+          style: const TextStyle(color: Colors.white70),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFailed() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 32),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(
+            Icons.error_outline_rounded,
+            color: Color(0xFFEF0003),
+            size: 48,
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            'No source returned a stream.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.white, fontSize: 16),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Every provider failed or timed out. Try again, or watch in the browser.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.white54, fontSize: 12.5),
+          ),
+          const SizedBox(height: 22),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              SqueezeButton(
+                onTap: _retryRace,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 22,
+                    vertical: 12,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEF0003),
+                    borderRadius: BorderRadius.circular(100),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.refresh_rounded,
+                        color: Colors.white,
+                        size: 18,
+                      ),
+                      SizedBox(width: 8),
+                      Text(
+                        'Try again',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              SqueezeButton(
+                onTap: _watchInBrowser,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 22,
+                    vertical: 12,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(100),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.2),
+                      width: 1.2,
+                    ),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.public_rounded, color: Colors.white, size: 18),
+                      SizedBox(width: 8),
+                      Text(
+                        'Watch in browser',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

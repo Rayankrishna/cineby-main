@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:app_web_ui/services/pages/webview.dart';
 import 'package:app_web_ui/services/server_vote_service.dart';
 import 'package:app_web_ui/services/stream_servers.dart';
+import 'package:app_web_ui/services/subtitle_service.dart';
 import 'package:app_web_ui/stores/history_store.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -19,6 +20,7 @@ class NativePlayerPage extends StatefulWidget {
   final String? subtitleUrl;
   final List<String> subtitleUrls; // all captured subtitle URLs
   final String? sourceUrl;          // embed URL used by the webview
+  final String? imdbId;             // for YIFY subtitle lookup
   final String? title;
   final int? tmdbId;
   final String? mediaType;
@@ -41,6 +43,7 @@ class NativePlayerPage extends StatefulWidget {
     this.subtitleUrl,
     this.subtitleUrls = const [],
     this.sourceUrl,
+    this.imdbId,
     this.title,
     this.tmdbId,
     this.mediaType,
@@ -159,6 +162,8 @@ class _NativePlayerPageState extends State<NativePlayerPage> {
   void initState() {
     super.initState();
     _activeSubtitleUrl = widget.subtitleUrl;
+    _activeSubLabel =
+        widget.subtitleUrl != null ? _subtitleLabel(widget.subtitleUrl!) : 'Off';
     // Suppress the OS volume HUD — our own drag overlay shows the level.
     VolumeController.instance.showSystemUI = false;
     WakelockPlus.enable();
@@ -177,7 +182,14 @@ class _NativePlayerPageState extends State<NativePlayerPage> {
   }
 
   bool _landscapeLocked = true;
+  // Active subtitle key: a captured iframe URL OR a yify zip URL. null = Off.
   String? _activeSubtitleUrl;
+  String _activeSubLabel = 'Off';
+  // English-by-default subtitles scraped from yifysubtitles.ch (by IMDb id).
+  List<YifySubtitle> _yifySubs = [];
+  // True once the user manually picks a track, so the async yify-English
+  // auto-select doesn't override their choice.
+  bool _userPickedSub = false;
 
   String _subtitleLabel(String url) {
     final uri = Uri.tryParse(url);
@@ -202,23 +214,79 @@ class _NativePlayerPageState extends State<NativePlayerPage> {
     return langs[code.toLowerCase()] ?? code.toUpperCase();
   }
 
-  Future<void> _setSubtitle(String? url) async {
+  /// Select a captured iframe subtitle URL, or `null` to turn subtitles off.
+  Future<void> _setSubtitle(String? url, {bool userInitiated = true}) async {
     final c = _controller;
     if (c == null) return;
-    setState(() => _activeSubtitleUrl = url);
+    if (userInitiated) _userPickedSub = true;
+    setState(() {
+      _activeSubtitleUrl = url;
+      _activeSubLabel = url == null ? 'Off' : _subtitleLabel(url);
+    });
     if (url == null) {
-      // Clear captions with an empty WebVTT document.
-      c.setClosedCaptionFile(
-        Future.value(WebVTTCaptionFile('WEBVTT\n\n')),
-      );
+      c.setClosedCaptionFile(Future.value(WebVTTCaptionFile('WEBVTT\n\n')));
       return;
     }
     try {
       final res = await http.get(Uri.parse(url), headers: widget.httpHeaders);
       if (res.statusCode >= 200 && res.statusCode < 300) {
-        c.setClosedCaptionFile(Future.value(WebVTTCaptionFile(res.body)));
+        final body = res.body;
+        // Skip non-subtitle content (HTML pages, etc.).
+        if (looksLikeHtml(body) ||
+            (!body.contains('-->') && !body.trimLeft().startsWith('WEBVTT'))) {
+          return;
+        }
+        final vtt = body.trimLeft().startsWith('WEBVTT')
+            ? body
+            : SubtitleService.instance.srtToVtt(body);
+        c.setClosedCaptionFile(Future.value(WebVTTCaptionFile(vtt)));
       }
     } catch (_) {}
+  }
+
+  /// Select a yifysubtitles track: download its zip, extract+convert the SRT,
+  /// and apply it.
+  Future<void> _setYifySubtitle(YifySubtitle s,
+      {bool userInitiated = true}) async {
+    final c = _controller;
+    if (c == null) return;
+    if (userInitiated) _userPickedSub = true;
+    setState(() {
+      _activeSubtitleUrl = s.zipUrl;
+      _activeSubLabel = '${s.language} (YIFY)';
+    });
+    final vtt = await SubtitleService.instance.vttForZip(s.zipUrl);
+    if (vtt != null && mounted && _controller != null) {
+      _controller!
+          .setClosedCaptionFile(Future.value(WebVTTCaptionFile(vtt)));
+    }
+  }
+
+  /// Fetch English subtitles for this title from yifysubtitles.ch (by IMDb id
+  /// resolved from TMDB) and auto-select the best one as the default — unless
+  /// the user already picked a track.
+  Future<void> _loadYifySubtitles() async {
+    final id = widget.tmdbId;
+    final mt = widget.mediaType;
+    final imdb = widget.imdbId;
+    // Prefer the IMDb id already carried from the detail response — avoids a
+    // second (and currently flaky) TMDB external_ids request.
+    final List<YifySubtitle> subs;
+    if (imdb != null && imdb.isNotEmpty) {
+      subs = await SubtitleService.instance.englishForImdb(imdb);
+    } else if (id != null && mt != null) {
+      subs = await SubtitleService.instance.englishForTitle(id, mt);
+    } else {
+      debugPrint('[SUBS] player: no imdbId/tmdbId — skipping yify');
+      return;
+    }
+    debugPrint('[SUBS] player: ${subs.length} english tracks '
+        '(imdb=$imdb tmdb=$id)');
+    if (!mounted || subs.isEmpty) return;
+    setState(() => _yifySubs = subs);
+    if (!_userPickedSub) {
+      await _setYifySubtitle(subs.first, userInitiated: false);
+    }
   }
 
   void _showSettings() {
@@ -239,9 +307,7 @@ class _NativePlayerPageState extends State<NativePlayerPage> {
         final maxH = MediaQuery.of(ctx).size.height * 0.7;
         return StatefulBuilder(
           builder: (ctx, setSheet) {
-            final subtitleValue = _activeSubtitleUrl == null
-                ? 'Off'
-                : _subtitleLabel(_activeSubtitleUrl!);
+            final subtitleValue = _activeSubLabel;
 
             Widget header(String title, {bool showBack = false}) => Padding(
                   padding: const EdgeInsets.fromLTRB(12, 12, 20, 14),
@@ -277,10 +343,11 @@ class _NativePlayerPageState extends State<NativePlayerPage> {
                   ),
                 );
 
+            final Widget headerWidget;
             final List<Widget> children;
             if (view == 'source') {
+              headerWidget = header('Source', showBack: true);
               children = [
-                header('Source', showBack: true),
                 for (final s in streamServers)
                   _settingsRow(
                     label: s.name,
@@ -291,8 +358,8 @@ class _NativePlayerPageState extends State<NativePlayerPage> {
                 const SizedBox(height: 8),
               ];
             } else if (view == 'subtitles') {
+              headerWidget = header('Subtitles', showBack: true);
               children = [
-                header('Subtitles', showBack: true),
                 _settingsRow(
                   label: 'Off',
                   icon: Icons.subtitles_off_rounded,
@@ -302,31 +369,43 @@ class _NativePlayerPageState extends State<NativePlayerPage> {
                     _setSubtitle(null);
                   },
                 ),
-                if (widget.subtitleUrls.isEmpty)
+                // YIFY subtitles (English-first, sourced by IMDb id). Default
+                // selection when available.
+                for (final s in _yifySubs)
+                  _settingsRow(
+                    label: '${s.language} (YIFY)',
+                    icon: Icons.subtitles_rounded,
+                    selected: _activeSubtitleUrl == s.zipUrl,
+                    onTap: () {
+                      Navigator.of(ctx).pop();
+                      _setYifySubtitle(s);
+                    },
+                  ),
+                // Tracks captured from the embed iframe, if any.
+                for (final url in widget.subtitleUrls)
+                  _settingsRow(
+                    label: _subtitleLabel(url),
+                    icon: Icons.subtitles_rounded,
+                    selected: _activeSubtitleUrl == url,
+                    onTap: () {
+                      Navigator.of(ctx).pop();
+                      _setSubtitle(url);
+                    },
+                  ),
+                if (_yifySubs.isEmpty && widget.subtitleUrls.isEmpty)
                   const Padding(
                     padding: EdgeInsets.fromLTRB(20, 4, 20, 12),
                     child: Text(
-                      'No subtitle tracks captured.',
+                      'No subtitles found for this title.',
                       style: TextStyle(color: Colors.white38, fontSize: 12.5),
                     ),
-                  )
-                else
-                  for (final url in widget.subtitleUrls)
-                    _settingsRow(
-                      label: _subtitleLabel(url),
-                      icon: Icons.subtitles_rounded,
-                      selected: _activeSubtitleUrl == url,
-                      onTap: () {
-                        Navigator.of(ctx).pop();
-                        _setSubtitle(url);
-                      },
-                    ),
+                  ),
                 const SizedBox(height: 8),
               ];
             } else {
               // Main menu — two options that drill into their lists.
+              headerWidget = header('Settings');
               children = [
-                header('Settings'),
                 _settingsNavRow(
                   icon: Icons.dns_rounded,
                   label: 'Source',
@@ -346,13 +425,26 @@ class _NativePlayerPageState extends State<NativePlayerPage> {
             return SafeArea(
               child: ConstrainedBox(
                 constraints: BoxConstraints(maxHeight: maxH),
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: children,
-                  ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Pinned header — stays put while only the list scrolls.
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: headerWidget,
+                    ),
+                    Flexible(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: children,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             );
@@ -573,6 +665,11 @@ class _NativePlayerPageState extends State<NativePlayerPage> {
 
       if (!mounted) return;
       setState(() => _controller = controller);
+
+      // Fetch English subtitles from yifysubtitles.ch in the background and
+      // auto-select them as the default (the iframe-captured sub, if any,
+      // shows until this resolves).
+      _loadYifySubtitles();
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = e.toString());
@@ -623,7 +720,16 @@ class _NativePlayerPageState extends State<NativePlayerPage> {
     final headers = Map<String, String>.from(widget.httpHeaders);
     final res = await http.get(Uri.parse(url), headers: headers);
     if (res.statusCode >= 200 && res.statusCode < 300) {
-      return res.body;
+      final body = res.body;
+      // A captured "subtitle" URL often turns out to be an HTML page or some
+      // non-subtitle resource — never feed that to the caption parser.
+      if (looksLikeHtml(body) ||
+          (!body.contains('-->') && !body.trimLeft().startsWith('WEBVTT'))) {
+        return null;
+      }
+      return body.trimLeft().startsWith('WEBVTT')
+          ? body
+          : SubtitleService.instance.srtToVtt(body);
     }
     return null;
   }
