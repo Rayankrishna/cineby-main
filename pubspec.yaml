@@ -59,6 +59,7 @@ dependencies:
   video_player: ^2.9.2
   archive: ^4.0.0
   html: ^0.15.4
+  file_picker: ^8.0.0
 
 
 

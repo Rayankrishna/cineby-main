@@ -14,6 +14,31 @@ const String tmdbApiKey = String.fromEnvironment(
 );
 const String _tmdbBase = 'https://api.themoviedb.org/3';
 
+// OpenSubtitles REST API (api.opensubtitles.com) — used for subtitles,
+// especially TV episodes (YIFY is movies-only). Register a free app at
+// opensubtitles.com → account → API consumers to get a key, then build with:
+//   --dart-define=OPENSUBTITLES_API_KEY=xxxx
+//   --dart-define=OPENSUBTITLES_USERNAME=you --dart-define=OPENSUBTITLES_PASSWORD=secret
+// Logging in raises the daily download quota (5/day anonymous → 20+/day).
+// Searching is always free; only downloads count against the quota.
+const String openSubtitlesApiKey = String.fromEnvironment(
+  'OPENSUBTITLES_API_KEY',
+  defaultValue: '0bYZnXX8ImbFRzWaobcOus2KhNzsm5hT',
+);
+const String openSubtitlesUsername = String.fromEnvironment(
+  'OPENSUBTITLES_USERNAME',
+  defaultValue: 'rayank2001',
+);
+const String openSubtitlesPassword = String.fromEnvironment(
+  'OPENSUBTITLES_PASSWORD',
+  defaultValue: 'Iamgon@007',
+);
+// OpenSubtitles requires a descriptive, app-specific User-Agent ("Name vX.Y").
+const String openSubtitlesUserAgent = String.fromEnvironment(
+  'OPENSUBTITLES_USER_AGENT',
+  defaultValue: 'Reelix v1.0',
+);
+
 // Playback embed defaults — 111Movies is the current default (Videasy is
 // dead). The full provider list lives in lib/services/stream_servers.dart;
 // detail pages should prefer streamServers.first.buildUrl(...) over building

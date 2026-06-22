@@ -104,6 +104,7 @@ class _TvDetailPageState extends State<TvDetailPage> {
         builder: (_) => MyWidget(
           tmdbId: widget.tvId,
           mediaType: 'tv',
+          imdbId: tv?.imdbId,
           seasonNumber: season,
           episodeNumber: episode,
           durationSeconds: durationSeconds,

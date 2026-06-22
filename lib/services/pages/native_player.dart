@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:app_web_ui/services/pages/webview.dart';
@@ -6,6 +7,8 @@ import 'package:app_web_ui/services/server_vote_service.dart';
 import 'package:app_web_ui/services/stream_servers.dart';
 import 'package:app_web_ui/services/subtitle_service.dart';
 import 'package:app_web_ui/stores/history_store.dart';
+import 'package:bot_toast/bot_toast.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -182,14 +185,18 @@ class _NativePlayerPageState extends State<NativePlayerPage> {
   }
 
   bool _landscapeLocked = true;
-  // Active subtitle key: a captured iframe URL OR a yify zip URL. null = Off.
+  // Active subtitle key: a captured iframe URL OR a SubtitleTrack.key. null = Off.
   String? _activeSubtitleUrl;
   String _activeSubLabel = 'Off';
-  // English-by-default subtitles scraped from yifysubtitles.ch (by IMDb id).
-  List<YifySubtitle> _yifySubs = [];
-  // True once the user manually picks a track, so the async yify-English
+  // English-by-default tracks: YIFY (movies) + OpenSubtitles (movies + TV),
+  // by IMDb id. Best-ranked first; the first is auto-selected as the default.
+  List<SubtitleTrack> _subTracks = [];
+  // True once the user manually picks a track, so the async English
   // auto-select doesn't override their choice.
   bool _userPickedSub = false;
+  // A subtitle file loaded from device storage (.srt/.vtt), if any.
+  String? _localSubVtt; // converted WebVTT
+  String? _localSubName; // file name, for the menu label
 
   String _subtitleLabel(String url) {
     final uri = Uri.tryParse(url);
@@ -244,49 +251,98 @@ class _NativePlayerPageState extends State<NativePlayerPage> {
     } catch (_) {}
   }
 
-  /// Select a yifysubtitles track: download its zip, extract+convert the SRT,
-  /// and apply it.
-  Future<void> _setYifySubtitle(YifySubtitle s,
-      {bool userInitiated = true}) async {
+  /// Select a fetched subtitle track (YIFY or OpenSubtitles): resolve it to
+  /// WebVTT via the service and apply it.
+  Future<void> _setTrack(SubtitleTrack t, {bool userInitiated = true}) async {
     final c = _controller;
     if (c == null) return;
     if (userInitiated) _userPickedSub = true;
     setState(() {
-      _activeSubtitleUrl = s.zipUrl;
-      _activeSubLabel = '${s.language} (YIFY)';
+      _activeSubtitleUrl = t.key;
+      _activeSubLabel = t.label;
     });
-    final vtt = await SubtitleService.instance.vttForZip(s.zipUrl);
+    final vtt = await SubtitleService.instance.vttForTrack(t);
     if (vtt != null && mounted && _controller != null) {
-      _controller!
-          .setClosedCaptionFile(Future.value(WebVTTCaptionFile(vtt)));
+      _controller!.setClosedCaptionFile(Future.value(WebVTTCaptionFile(vtt)));
     }
   }
 
-  /// Fetch English subtitles for this title from yifysubtitles.ch (by IMDb id
-  /// resolved from TMDB) and auto-select the best one as the default — unless
-  /// the user already picked a track.
-  Future<void> _loadYifySubtitles() async {
+  /// Fetch English subtitle tracks for this title — YIFY for movies,
+  /// OpenSubtitles for movies and TV episodes (by IMDb id from the detail
+  /// response) — and auto-select the best one as the default, unless the user
+  /// already picked a track.
+  Future<void> _loadSubtitleTracks() async {
     final id = widget.tmdbId;
     final mt = widget.mediaType;
     final imdb = widget.imdbId;
-    // Prefer the IMDb id already carried from the detail response — avoids a
-    // second (and currently flaky) TMDB external_ids request.
-    final List<YifySubtitle> subs;
-    if (imdb != null && imdb.isNotEmpty) {
-      subs = await SubtitleService.instance.englishForImdb(imdb);
-    } else if (id != null && mt != null) {
-      subs = await SubtitleService.instance.englishForTitle(id, mt);
-    } else {
-      debugPrint('[SUBS] player: no imdbId/tmdbId — skipping yify');
+    if ((imdb == null || imdb.isEmpty) && id == null) {
+      debugPrint('[SUBS] player: no imdbId/tmdbId — skipping subtitle fetch');
       return;
     }
-    debugPrint('[SUBS] player: ${subs.length} english tracks '
-        '(imdb=$imdb tmdb=$id)');
-    if (!mounted || subs.isEmpty) return;
-    setState(() => _yifySubs = subs);
+    final tracks = await SubtitleService.instance.englishTracks(
+      imdbId: imdb,
+      tmdbId: id,
+      mediaType: mt ?? 'movie',
+      seasonNumber: widget.seasonNumber,
+      episodeNumber: widget.episodeNumber,
+    );
+    debugPrint('[SUBS] player: ${tracks.length} english tracks '
+        '(imdb=$imdb tmdb=$id s=${widget.seasonNumber} e=${widget.episodeNumber})');
+    if (!mounted || tracks.isEmpty) return;
+    setState(() => _subTracks = tracks);
     if (!_userPickedSub) {
-      await _setYifySubtitle(subs.first, userInitiated: false);
+      await _setTrack(tracks.first, userInitiated: false);
     }
+  }
+
+  /// Let the user pick a subtitle file (.srt/.vtt) from device storage,
+  /// convert it to WebVTT, and apply it.
+  Future<void> _pickLocalSubtitle() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['srt', 'vtt'],
+        withData: true,
+      );
+      if (result == null || result.files.isEmpty) return;
+      final f = result.files.first;
+      var bytes = f.bytes;
+      if (bytes == null && f.path != null) {
+        bytes = await File(f.path!).readAsBytes();
+      }
+      if (bytes == null) return;
+      // SRT files are commonly Windows-1252/latin1; allowMalformed keeps them
+      // readable either way.
+      final text = utf8.decode(bytes, allowMalformed: true);
+      if (!text.contains('-->')) {
+        BotToast.showText(text: 'That file has no subtitle cues.');
+        return;
+      }
+      final vtt = text.trimLeft().startsWith('WEBVTT')
+          ? text
+          : SubtitleService.instance.srtToVtt(text);
+      if (!mounted) return;
+      setState(() {
+        _localSubVtt = vtt;
+        _localSubName = f.name;
+      });
+      _applyLocalSubtitle();
+    } catch (e) {
+      BotToast.showText(text: "Couldn't load that subtitle file.");
+    }
+  }
+
+  /// Apply the loaded local subtitle file to the player.
+  void _applyLocalSubtitle() {
+    final c = _controller;
+    final vtt = _localSubVtt;
+    if (c == null || vtt == null) return;
+    _userPickedSub = true;
+    setState(() {
+      _activeSubtitleUrl = 'local';
+      _activeSubLabel = _localSubName ?? 'Local file';
+    });
+    c.setClosedCaptionFile(Future.value(WebVTTCaptionFile(vtt)));
   }
 
   void _showSettings() {
@@ -369,16 +425,16 @@ class _NativePlayerPageState extends State<NativePlayerPage> {
                     _setSubtitle(null);
                   },
                 ),
-                // YIFY subtitles (English-first, sourced by IMDb id). Default
-                // selection when available.
-                for (final s in _yifySubs)
+                // Fetched subtitles (English-first, by IMDb id): YIFY for
+                // movies, OpenSubtitles for movies + TV. Default when present.
+                for (final t in _subTracks)
                   _settingsRow(
-                    label: '${s.language} (YIFY)',
+                    label: t.label,
                     icon: Icons.subtitles_rounded,
-                    selected: _activeSubtitleUrl == s.zipUrl,
+                    selected: _activeSubtitleUrl == t.key,
                     onTap: () {
                       Navigator.of(ctx).pop();
-                      _setYifySubtitle(s);
+                      _setTrack(t);
                     },
                   ),
                 // Tracks captured from the embed iframe, if any.
@@ -392,7 +448,20 @@ class _NativePlayerPageState extends State<NativePlayerPage> {
                       _setSubtitle(url);
                     },
                   ),
-                if (_yifySubs.isEmpty && widget.subtitleUrls.isEmpty)
+                // A subtitle file the user loaded from device storage.
+                if (_localSubVtt != null)
+                  _settingsRow(
+                    label: _localSubName ?? 'Local file',
+                    icon: Icons.description_rounded,
+                    selected: _activeSubtitleUrl == 'local',
+                    onTap: () {
+                      Navigator.of(ctx).pop();
+                      _applyLocalSubtitle();
+                    },
+                  ),
+                if (_subTracks.isEmpty &&
+                    widget.subtitleUrls.isEmpty &&
+                    _localSubVtt == null)
                   const Padding(
                     padding: EdgeInsets.fromLTRB(20, 4, 20, 12),
                     child: Text(
@@ -400,6 +469,17 @@ class _NativePlayerPageState extends State<NativePlayerPage> {
                       style: TextStyle(color: Colors.white38, fontSize: 12.5),
                     ),
                   ),
+                const Divider(color: Colors.white12, height: 8),
+                // Load a subtitle file (.srt/.vtt) from device storage.
+                _settingsRow(
+                  label: 'Add subtitle file…',
+                  icon: Icons.upload_file_rounded,
+                  selected: false,
+                  onTap: () {
+                    Navigator.of(ctx).pop();
+                    _pickLocalSubtitle();
+                  },
+                ),
                 const SizedBox(height: 8),
               ];
             } else {
@@ -666,10 +746,10 @@ class _NativePlayerPageState extends State<NativePlayerPage> {
       if (!mounted) return;
       setState(() => _controller = controller);
 
-      // Fetch English subtitles from yifysubtitles.ch in the background and
-      // auto-select them as the default (the iframe-captured sub, if any,
+      // Fetch English subtitles (YIFY + OpenSubtitles) in the background and
+      // auto-select the best as the default (the iframe-captured sub, if any,
       // shows until this resolves).
-      _loadYifySubtitles();
+      _loadSubtitleTracks();
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = e.toString());
