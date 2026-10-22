@@ -8,6 +8,7 @@ import 'package:app_web_ui/stores/download_store.dart';
 import 'package:app_web_ui/stores/history_store.dart';
 import 'package:app_web_ui/stores/movie_detail_store.dart';
 import 'package:app_web_ui/stores/watchlist_store.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 
@@ -188,13 +189,14 @@ class _MovieDetailPageState extends State<MovieDetailPage> {
                     ),
 
                     // Top-right action row: Download + Watchlist toggle.
+                    // No downloads on the web build (no local file system).
                     Positioned(
                       top: MediaQuery.of(context).padding.top + 8,
                       right: 8,
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Observer(builder: (_) {
+                          if (!kIsWeb) Observer(builder: (_) {
                             final key = widget.movieId.toString();
                             final activeMatch = downloadStore.active
                                 .where((a) => a.key == key)

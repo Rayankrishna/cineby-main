@@ -9,6 +9,7 @@ import 'package:app_web_ui/stores/download_store.dart';
 import 'package:app_web_ui/stores/history_store.dart';
 import 'package:app_web_ui/stores/tv_detail_store.dart';
 import 'package:app_web_ui/stores/watchlist_store.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 
@@ -768,7 +769,8 @@ class _EpisodeTile extends StatelessWidget {
             // Per-episode download icon — observes the DownloadStore so it
             // renders idle / progress / done / cancel correctly. Hit-tested
             // before the outer SqueezeButton (taps here don't start playback).
-            Observer(builder: (_) {
+            // Hidden on the web build (no local file system).
+            if (!kIsWeb) Observer(builder: (_) {
               final active = downloadStore.active
                   .where((a) => a.key == _dlKey)
                   .toList();

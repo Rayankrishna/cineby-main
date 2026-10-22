@@ -1,4 +1,5 @@
 import 'package:bot_toast/bot_toast.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 void showPlayerHintToast() {
@@ -54,12 +55,14 @@ void showPlayerHintToast() {
                       ),
                     ),
                     const SizedBox(width: 12),
-                    const Flexible(
+                    Flexible(
                       child: Text(
-                        'If the video doesn\'t play, close and tap Play again.',
+                        kIsWeb
+                            ? 'If the video doesn\'t play, pick another source at the top.'
+                            : 'If the video doesn\'t play, close and tap Play again.',
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
+                        style: const TextStyle(
                           color: Colors.white,
                           fontSize: 12.5,
                           letterSpacing: -0.1,

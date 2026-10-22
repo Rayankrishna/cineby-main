@@ -25,16 +25,17 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> _submit() async {
-    final ok = _isRegister
-        ? await authStore.register(
-            name: _name.text.trim(),
-            email: _email.text.trim(),
-            password: _password.text,
-          )
-        : await authStore.login(
-            email: _email.text.trim(),
-            password: _password.text,
-          );
+    final ok =
+        _isRegister
+            ? await authStore.register(
+              name: _name.text.trim(),
+              email: _email.text.trim(),
+              password: _password.text,
+            )
+            : await authStore.login(
+              email: _email.text.trim(),
+              password: _password.text,
+            );
     // Success: the root Observer in main.dart will rebuild to MyHomePage.
     if (!ok) return;
   }
@@ -46,108 +47,127 @@ class _LoginPageState extends State<LoginPage> {
         child: Center(
           child: SingleChildScrollView(
             padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 32),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Center(
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(14),
-                    child: Image.asset(
-                      'assets/favicon.jpg',
-                      width: 64,
-                      height: 64,
-                      fit: BoxFit.cover,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  _isRegister ? 'Create your account' : 'Welcome to Reelix',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
-                    letterSpacing: -0.5,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  _isRegister
-                      ? 'Sign up to track your watch progress and lists'
-                      : 'Sign in to continue',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.white60, fontSize: 14),
-                ),
-                const SizedBox(height: 28),
-                if (_isRegister) ...[
-                  _field(_name, 'Name', Icons.person_outline_rounded),
-                  const SizedBox(height: 12),
-                ],
-                _field(_email, 'Email', Icons.mail_outline_rounded,
-                    keyboard: TextInputType.emailAddress),
-                const SizedBox(height: 12),
-                _field(_password, 'Password', Icons.lock_outline_rounded,
-                    obscure: true),
-                const SizedBox(height: 18),
-                Observer(builder: (_) {
-                  if (authStore.errorMessage != null) {
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: Text(
-                        authStore.errorMessage!,
-                        style: const TextStyle(
-                            color: Color(0xFFEF0003), fontSize: 13),
-                      ),
-                    );
-                  }
-                  return const SizedBox.shrink();
-                }),
-                Observer(builder: (_) {
-                  final loading = authStore.isLoading;
-                  return Opacity(
-                    opacity: loading ? 0.6 : 1.0,
-                    child: SqueezeButton(
-                      onTap: loading ? null : _submit,
-                      child: Container(
-                        height: 50,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFEF0003),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        alignment: Alignment.center,
-                        child: loading
-                            ? const SizedBox(
-                                width: 22,
-                                height: 22,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2.4,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : Text(
-                                _isRegister ? 'Sign up' : 'Sign in',
-                                style: const TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.white,
-                                ),
-                              ),
+            // Keep the form phone-width on tablets and desktop browsers.
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Center(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(14),
+                      child: Image.asset(
+                        'assets/favicon.jpg',
+                        width: 64,
+                        height: 64,
+                        fit: BoxFit.cover,
                       ),
                     ),
-                  );
-                }),
-                const SizedBox(height: 14),
-                TextButton(
-                  onPressed: () => setState(() => _isRegister = !_isRegister),
-                  child: Text(
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    _isRegister ? 'Create your account' : 'Welcome to Reelix',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                      letterSpacing: -0.5,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
                     _isRegister
-                        ? 'Already have an account? Sign in'
-                        : "New here? Create an account",
-                    style: const TextStyle(color: Colors.white70),
+                        ? 'Sign up to track your watch progress and lists'
+                        : 'Sign in to continue',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.white60, fontSize: 14),
                   ),
-                ),
-              ],
+                  const SizedBox(height: 28),
+                  if (_isRegister) ...[
+                    _field(_name, 'Name', Icons.person_outline_rounded),
+                    const SizedBox(height: 12),
+                  ],
+                  _field(
+                    _email,
+                    'Email',
+                    Icons.mail_outline_rounded,
+                    keyboard: TextInputType.emailAddress,
+                  ),
+                  const SizedBox(height: 12),
+                  _field(
+                    _password,
+                    'Password',
+                    Icons.lock_outline_rounded,
+                    obscure: true,
+                  ),
+                  const SizedBox(height: 18),
+                  Observer(
+                    builder: (_) {
+                      if (authStore.errorMessage != null) {
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: Text(
+                            authStore.errorMessage!,
+                            style: const TextStyle(
+                              color: Color(0xFFEF0003),
+                              fontSize: 13,
+                            ),
+                          ),
+                        );
+                      }
+                      return const SizedBox.shrink();
+                    },
+                  ),
+                  Observer(
+                    builder: (_) {
+                      final loading = authStore.isLoading;
+                      return Opacity(
+                        opacity: loading ? 0.6 : 1.0,
+                        child: SqueezeButton(
+                          onTap: loading ? null : _submit,
+                          child: Container(
+                            height: 50,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFEF0003),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            alignment: Alignment.center,
+                            child:
+                                loading
+                                    ? const SizedBox(
+                                      width: 22,
+                                      height: 22,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2.4,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                    : Text(
+                                      _isRegister ? 'Sign up' : 'Sign in',
+                                      style: const TextStyle(
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 14),
+                  TextButton(
+                    onPressed: () => setState(() => _isRegister = !_isRegister),
+                    child: Text(
+                      _isRegister
+                          ? 'Already have an account? Sign in'
+                          : "New here? Create an account",
+                      style: const TextStyle(color: Colors.white70),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),

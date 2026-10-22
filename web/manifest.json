@@ -1,0 +1,35 @@
+{
+    "name": "Reelix",
+    "short_name": "Reelix",
+    "start_url": ".",
+    "display": "standalone",
+    "background_color": "#18181A",
+    "theme_color": "#18181A",
+    "description": "Browse trending movies, series and anime, keep a watchlist and pick up where you left off.",
+    "orientation": "any",
+    "prefer_related_applications": false,
+    "icons": [
+        {
+            "src": "icons/Icon-192.png",
+            "sizes": "192x192",
+            "type": "image/png"
+        },
+        {
+            "src": "icons/Icon-512.png",
+            "sizes": "512x512",
+            "type": "image/png"
+        },
+        {
+            "src": "icons/Icon-maskable-192.png",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "maskable"
+        },
+        {
+            "src": "icons/Icon-maskable-512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "maskable"
+        }
+    ]
+}

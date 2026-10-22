@@ -3,6 +3,8 @@ import 'package:app_web_ui/services/pages/login_page.dart';
 import 'package:app_web_ui/services/pages/root_shell.dart';
 import 'package:app_web_ui/stores/auth_store.dart';
 import 'package:bot_toast/bot_toast.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
@@ -13,7 +15,9 @@ Future<void> main() async {
   // Allow free rotation — phones stay in their natural orientation, tablets
   // and foldables can use landscape so the app fills the screen instead of
   // being letterboxed with black bars on the sides.
-  await SystemChrome.setPreferredOrientations(DeviceOrientation.values);
+  if (!kIsWeb) {
+    await SystemChrome.setPreferredOrientations(DeviceOrientation.values);
+  }
   await authStore.bootstrap();
   runApp(const MyApp());
 }
@@ -60,6 +64,7 @@ class MyApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'Reelix',
       theme: base.copyWith(textTheme: textTheme),
+      scrollBehavior: const _AppScrollBehavior(),
       navigatorObservers: [BotToastNavigatorObserver()],
       builder: (context, child) => botToastBuilder(context, child),
       home: Observer(
@@ -71,4 +76,17 @@ class MyApp extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Desktop browsers: let a mouse drag the horizontal poster rows too. Flutter
+/// only drag-scrolls with touch by default, and a vertical wheel can't move a
+/// horizontal list, so mouse users couldn't reach the rest of a row.
+class _AppScrollBehavior extends MaterialScrollBehavior {
+  const _AppScrollBehavior();
+
+  @override
+  Set<PointerDeviceKind> get dragDevices => {
+    ...super.dragDevices,
+    if (kIsWeb) PointerDeviceKind.mouse,
+  };
 }

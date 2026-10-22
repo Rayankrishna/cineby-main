@@ -2,6 +2,7 @@ import 'package:app_web_ui/services/pages/downloads_page.dart';
 import 'package:app_web_ui/services/pages/home.dart';
 import 'package:app_web_ui/services/pages/profile_page.dart';
 import 'package:bot_toast/bot_toast.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show SystemNavigator;
 
@@ -23,7 +24,8 @@ class _RootShellState extends State<RootShell> {
   // Called by Flutter when the system back gesture is invoked AND the route
   // can't pop further (we set canPop: false so it always arrives here).
   void _onBack(bool didPop, Object? _) {
-    if (didPop) return;
+    // In a browser the back button belongs to the browser — nothing to exit.
+    if (didPop || kIsWeb) return;
     final now = DateTime.now();
     if (_lastBackPress == null ||
         now.difference(_lastBackPress!) > _exitWindow) {
@@ -50,10 +52,12 @@ class _RootShellState extends State<RootShell> {
         children: [
           IndexedStack(
             index: _index,
-            children: const [
-              MyHomePage(title: 'Reelix'),
-              DownloadsPage(),
-              ProfilePage(),
+            children: [
+              const MyHomePage(title: 'Reelix'),
+              // Downloads need a local file system, so the web build skips
+              // the tab. Indexes stay the same: Profile is still 2.
+              kIsWeb ? const SizedBox.shrink() : const DownloadsPage(),
+              const ProfilePage(),
             ],
           ),
           Positioned(
@@ -120,13 +124,15 @@ class _FloatingNav extends StatelessWidget {
             selected: index == 0,
             onTap: () => onChanged(0),
           ),
-          const SizedBox(width: 4),
-          _NavPill(
-            icon: Icons.download_rounded,
-            label: 'Downloads',
-            selected: index == 1,
-            onTap: () => onChanged(1),
-          ),
+          if (!kIsWeb) ...[
+            const SizedBox(width: 4),
+            _NavPill(
+              icon: Icons.download_rounded,
+              label: 'Downloads',
+              selected: index == 1,
+              onTap: () => onChanged(1),
+            ),
+          ],
           const SizedBox(width: 4),
           _NavPill(
             icon: Icons.person_rounded,

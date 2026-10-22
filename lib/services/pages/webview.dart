@@ -3,12 +3,14 @@ import 'dart:collection';
 import 'dart:io' show Platform;
 import 'package:app_web_ui/services/config.dart';
 import 'package:app_web_ui/services/pages/native_player.dart';
+import 'package:app_web_ui/services/pages/web_player.dart';
 import 'package:app_web_ui/services/stream_extractor.dart';
 import 'package:app_web_ui/services/stream_servers.dart';
 import 'package:app_web_ui/shared/squeeze_button.dart';
 import 'package:app_web_ui/stores/download_store.dart';
 import 'package:app_web_ui/stores/history_store.dart';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -58,8 +60,13 @@ class MyWidget extends StatefulWidget {
     this.iframePlayback = false,
   });
 
+  // Browsers can't run the headless stream extractor, so the web build plays
+  // the provider's embed in an iframe instead. kIsWeb is a compile-time
+  // constant, so each build only ever uses one of the two states.
   @override
-  State<MyWidget> createState() => _MyWidgetState();
+  State<MyWidget> createState() =>
+      // ignore: no_logic_in_create_state
+      kIsWeb ? WebPlayerState() : _MyWidgetState();
 }
 
 class _MyWidgetState extends State<MyWidget> {
