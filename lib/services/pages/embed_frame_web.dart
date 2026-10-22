@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:js_interop';
 
+import 'package:app_web_ui/services/pages/embed_frame_controller.dart';
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 import 'package:web/web.dart' as web;
 
@@ -9,18 +11,27 @@ import 'package:web/web.dart' as web;
 ///
 /// * [shield]: a click-catching layer over the frame. A browser only lets a
 ///   page open a tab from a click that landed in that page, so when clicks
-///   never reach the embed, its ad scripts can't open tabs. The player is
-///   driven by keyboard instead (the embed players honour Space, ←/→, M).
+///   never reach the embed, its ad scripts can't open tabs. [holes] (in the
+///   frame's own coordinates) are cut out of it so clicks there land on the
+///   player's own buttons underneath.
 /// * Hijack recovery: when the frame navigates away from the player on its
 ///   own, it is covered immediately and replaced with a fresh frame on
 ///   [url], so the ad page is never shown.
 ///
 /// Key it by [url] so switching sources builds a fresh frame.
 class EmbedFrame extends StatefulWidget {
-  const EmbedFrame({super.key, required this.url, this.shield = false});
+  const EmbedFrame({
+    super.key,
+    required this.url,
+    this.shield = false,
+    this.holes = const [],
+    this.controller,
+  });
 
   final String url;
   final bool shield;
+  final List<Rect> holes;
+  final EmbedFrameController? controller;
 
   @override
   State<EmbedFrame> createState() => _EmbedFrameState();
@@ -36,6 +47,7 @@ class _EmbedFrameState extends State<EmbedFrame> {
 
   web.HTMLElement? _shieldEl;
   JSFunction? _onShieldDown;
+  Timer? _wrapperTimer;
 
   // Covered until the player has loaded, and again while a hijacked frame
   // is being replaced.
@@ -69,6 +81,7 @@ class _EmbedFrameState extends State<EmbedFrame> {
     final generation = _generation;
     _onLoad = ((web.Event _) => _handleLoad(generation)).toJS;
     iframe.addEventListener('load', _onLoad);
+    widget.controller?.postHandler = _post;
 
     // If the provider never fires load (blocked, hanging), show whatever is
     // there rather than a spinner forever.
@@ -105,6 +118,12 @@ class _EmbedFrameState extends State<EmbedFrame> {
     });
   }
 
+  void _post(Map<String, Object?> message) {
+    try {
+      _iframe?.contentWindow?.postMessage(message.jsify(), '*'.toJS);
+    } catch (_) {}
+  }
+
   void _onShieldCreated(Object element) {
     _detachShield();
     final div = element as web.HTMLElement;
@@ -112,8 +131,18 @@ class _EmbedFrameState extends State<EmbedFrame> {
     div.setAttribute('data-role', 'ad-shield');
     div.style
       ..width = '100%'
-      ..height = '100%'
-      ..cursor = 'default';
+      ..height = '100%';
+    // No cursor of its own: it inherits the app's, so the player can hide it.
+    _applyHoles();
+    // Flutter attaches and slots the element after this callback, and may
+    // rebuild its slot containers when overlays change, so keep the wrappers
+    // click-through for as long as the shield exists.
+    _wrapperTimer?.cancel();
+    _releaseWrappers();
+    _wrapperTimer = Timer.periodic(
+      const Duration(milliseconds: 400),
+      (_) => _releaseWrappers(),
+    );
     _onShieldDown =
         ((web.Event e) {
           // Don't move focus to the shield: keep it on the frame so the
@@ -122,6 +151,53 @@ class _EmbedFrameState extends State<EmbedFrame> {
           _focusFrame();
         }).toJS;
     div.addEventListener('mousedown', _onShieldDown);
+  }
+
+  /// Cuts [EmbedFrame.holes] out of the shield. clip-path also clips hit
+  /// testing, so pointer events in a hole go straight to the iframe.
+  void _applyHoles() {
+    final div = _shieldEl;
+    if (div == null) return;
+    _releaseWrappers();
+    if (widget.holes.isEmpty) {
+      div.style.removeProperty('clip-path');
+      return;
+    }
+    String pt(double x, double y) =>
+        '${x.toStringAsFixed(1)}px ${y.toStringAsFixed(1)}px';
+    final points = <String>['0 0', '100% 0', '100% 100%', '0 100%', '0 0'];
+    for (final r in widget.holes) {
+      points.addAll([
+        pt(r.left, r.top),
+        pt(r.right, r.top),
+        pt(r.right, r.bottom),
+        pt(r.left, r.bottom),
+        pt(r.left, r.top),
+        '0 0',
+      ]);
+    }
+    div.style.setProperty(
+      'clip-path',
+      'polygon(evenodd, ${points.join(', ')})',
+    );
+  }
+
+  /// Flutter wraps the shield in a `flt-platform-view` and slots that into a
+  /// positioned container in its shadow DOM; both would still catch clicks in
+  /// the holes. Let clicks fall through them; the shield itself takes them
+  /// back where it isn't cut out.
+  void _releaseWrappers() {
+    final div = _shieldEl;
+    if (div == null) return;
+    div.style.pointerEvents = 'auto';
+    final wrapper = div.parentElement;
+    final slot = wrapper?.assignedSlot;
+    for (final el in [wrapper, slot, slot?.parentElement]) {
+      if (el != null && el.isA<web.HTMLElement>()) {
+        final style = (el as web.HTMLElement).style;
+        if (style.pointerEvents != 'none') style.pointerEvents = 'none';
+      }
+    }
   }
 
   void _focusFrame() {
@@ -137,6 +213,11 @@ class _EmbedFrameState extends State<EmbedFrame> {
   void didUpdateWidget(EmbedFrame oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.shield && !oldWidget.shield) _focusFrame();
+    if (!listEquals(widget.holes, oldWidget.holes)) _applyHoles();
+    if (widget.controller != oldWidget.controller) {
+      oldWidget.controller?.postHandler = null;
+      widget.controller?.postHandler = _post;
+    }
   }
 
   void _detachListener() {
@@ -148,6 +229,8 @@ class _EmbedFrameState extends State<EmbedFrame> {
   }
 
   void _detachShield() {
+    _wrapperTimer?.cancel();
+    _wrapperTimer = null;
     if (_shieldEl != null && _onShieldDown != null) {
       _shieldEl!.removeEventListener('mousedown', _onShieldDown);
     }
@@ -157,6 +240,7 @@ class _EmbedFrameState extends State<EmbedFrame> {
 
   @override
   void dispose() {
+    widget.controller?.postHandler = null;
     _uncoverTimer?.cancel();
     _detachListener();
     _detachShield();
@@ -215,6 +299,14 @@ StreamSubscription<Object?>? listenToWindowMessages(
 /// needs keys to drive the player, so it's only on by default here.
 bool get webHasKeyboardPointer =>
     web.window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+
+/// Fires when the embed's iframe takes focus, i.e. a click went through a
+/// hole into the player.
+StreamSubscription<Object?>? listenToFrameFocus(void Function() onFocus) {
+  return web.EventStreamProviders.blurEvent.forTarget(web.window).listen((_) {
+    if (web.document.activeElement?.tagName == 'IFRAME') onFocus();
+  });
+}
 
 bool appIsFullscreen() => web.document.fullscreenElement != null;
 
