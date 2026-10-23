@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:ui' show lerpDouble;
 
 import 'package:app_web_ui/services/pages/embed_frame.dart';
 import 'package:app_web_ui/services/pages/webview.dart';
@@ -12,17 +11,30 @@ import 'package:flutter/material.dart';
 
 const _accent = Color(0xFFEF0003);
 
+/// Sources offered on the web: only those our custom player can drive
+/// without a click ever reaching the provider. 111Movies takes seek commands
+/// and responds to the keyboard; the others need clicks on their own,
+/// ad-laden controls. The mobile app still offers every source.
+const _customServers = {'111Movies'};
+final List<StreamServer> _webServers =
+    streamServers.where((s) => _customServers.contains(s.name)).toList();
+
+/// Height of our bottom control bar.
+const double _barHeight = 104;
+
 /// The web build's player — [MyWidget] uses this state when running in a
 /// browser. Browsers can't run the Android headless extractor (no request
 /// interception, and CORS blocks reading the embed pages), so the provider's
 /// own player plays in an iframe.
 ///
-/// With the ad shield on and a provider whose player we know (111Movies), the
-/// iframe is covered by our own controls:
+/// With the ad shield on, the iframe is fully covered and no click ever
+/// reaches the provider, so its ad scripts never get the click they need to
+/// open a tab. Instead:
 /// * seek and ±10s are sent to the player as postMessage commands;
-/// * play/pause and volume can't be commanded, so the shield has holes over
-///   the provider's own buttons and our icons are drawn on top: the click
-///   lands on the real button underneath;
+/// * play/pause and sound can't be commanded, and a page can't fake key
+///   presses into another site's frame, so the player keeps keyboard focus
+///   and the user's own Space / M keys drive it (keys don't trigger its ads);
+///   our play and volume buttons say which key to press;
 /// * subtitles come from OpenSubtitles (through the backend) and are drawn
 ///   by us, timed from the player's progress events.
 class WebPlayerState extends State<MyWidget> {
@@ -40,11 +52,12 @@ class WebPlayerState extends State<MyWidget> {
   // Server we already sent a success vote for, so we vote once per source.
   String? _votedFor;
 
-  // Ad shield: blocks clicks into the embed so its ads can't open tabs.
+  // Ad shield: blocks clicks into the embed so its ads can't open tabs. The
+  // player is then driven by keys, so it starts on only where there's a
+  // keyboard.
   bool _shield = true;
   bool _fullscreen = false;
   StreamSubscription<Object?>? _fullscreenSub;
-  StreamSubscription<Object?>? _frameFocusSub;
 
   final EmbedFrameController _frame = EmbedFrameController();
 
@@ -55,6 +68,8 @@ class WebPlayerState extends State<MyWidget> {
   DateTime _baseAt = DateTime.now();
   double? _duration;
   bool _resumeSent = false;
+  double _lastReportedTime = -1;
+  Object? _lastEvent;
   Timer? _tick;
   // No player event for a while after loading: the provider is erroring or
   // stuck (its own error dialog can't be clicked through the shield).
@@ -67,8 +82,10 @@ class WebPlayerState extends State<MyWidget> {
 
   bool _controlsVisible = true;
   Timer? _hideTimer;
-  Offset? _pointer;
-  _ProviderLayout? _layout;
+  // "Press Space…" hints shown above the bar.
+  String? _keyHint;
+  Timer? _keyHintTimer;
+  bool _soundHintShown = false;
 
   // Subtitles.
   bool _subsOpen = false;
@@ -92,8 +109,7 @@ class WebPlayerState extends State<MyWidget> {
     _fullscreenSub = listenToFullscreenChange(() {
       if (mounted) setState(() => _fullscreen = appIsFullscreen());
     });
-    // A click went through a hole onto the player's own button.
-    _frameFocusSub = listenToFrameFocus(_poke);
+    _shield = webHasKeyboardPointer;
     // Fallback progress saving for providers that don't post player events.
     _elapsedTimer = Timer.periodic(
       const Duration(seconds: 15),
@@ -110,15 +126,17 @@ class WebPlayerState extends State<MyWidget> {
   /// the first configured one.
   Future<void> _pickInitialServer() async {
     var server = widget.url == null ? null : streamServerForUrl(widget.url!);
+    if (!_webServers.contains(server)) server = null;
     if (server == null && _hasTitle) {
-      final best = await ServerVoteService.instance.bestServerName(
-        tmdbId: widget.tmdbId!,
-        mediaType: widget.mediaType!,
-      );
-      server = streamServers.where((s) => s.name == best).firstOrNull;
+      // Don't hold the player on a slow backend (cold start): after 1.5s
+      // just start on the default source.
+      final best = await ServerVoteService.instance
+          .bestServerName(tmdbId: widget.tmdbId!, mediaType: widget.mediaType!)
+          .timeout(const Duration(milliseconds: 1500), onTimeout: () => null);
+      server = _webServers.where((s) => s.name == best).firstOrNull;
     }
     if (!mounted) return;
-    setState(() => _server = server ?? streamServers.first);
+    setState(() => _server = server ?? _webServers.first);
     _watchForStall();
   }
 
@@ -127,7 +145,10 @@ class WebPlayerState extends State<MyWidget> {
     _stalled = false;
     _eventSinceLoad = false;
     _stallTimer = Timer(const Duration(seconds: 15), () {
-      if (mounted && !_eventSinceLoad) setState(() => _stalled = true);
+      // Only 111Movies autoplays; the others wait for a click.
+      if (mounted && !_eventSinceLoad && _supportsCommands) {
+        setState(() => _stalled = true);
+      }
     });
   }
 
@@ -142,8 +163,8 @@ class WebPlayerState extends State<MyWidget> {
   }
 
   void _nextSource() {
-    final i = streamServers.indexOf(_server!);
-    _switchServer(streamServers[(i + 1) % streamServers.length]);
+    final i = _webServers.indexOf(_server!);
+    _switchServer(_webServers[(i + 1) % _webServers.length]);
   }
 
   String? get _embedUrl {
@@ -172,6 +193,9 @@ class WebPlayerState extends State<MyWidget> {
       }
       _playing = false;
       _resumeSent = false;
+      _lastReportedTime = -1;
+      _lastEvent = null;
+      _soundHintShown = false;
       _baseTime = _elapsedBaseline.toDouble();
       _baseAt = DateTime.now();
     });
@@ -183,7 +207,7 @@ class WebPlayerState extends State<MyWidget> {
     _messages?.cancel();
     _elapsedTimer?.cancel();
     _fullscreenSub?.cancel();
-    _frameFocusSub?.cancel();
+    _keyHintTimer?.cancel();
     _tick?.cancel();
     _hideTimer?.cancel();
     _stallTimer?.cancel();
@@ -216,16 +240,22 @@ class WebPlayerState extends State<MyWidget> {
     if (eventTmdbId is num && eventTmdbId.toInt() != widget.tmdbId) return;
     final timestamp =
         (payload['timestamp'] ?? payload['currentTime']) as Object?;
-    if (timestamp is! num) return;
-    final duration = payload['duration'];
+    if (timestamp is! num || !timestamp.isFinite) return;
+    // Players report NaN/Infinity before the video's metadata has loaded,
+    // and round() throws on those.
+    final rawDuration = payload['duration'];
+    final duration =
+        rawDuration is num && rawDuration.isFinite && rawDuration > 0
+            ? rawDuration
+            : null;
     _updateClock(
       payload['event'] as Object?,
       timestamp.toDouble(),
-      duration is num ? duration.toDouble() : null,
+      duration?.toDouble(),
     );
     _handleProgress(
       timestamp.round(),
-      duration is num ? duration.round() : null,
+      duration?.round(),
       season: payload['season'],
       episode: payload['episode'],
     );
@@ -240,12 +270,20 @@ class WebPlayerState extends State<MyWidget> {
       switch (event) {
         case 'play':
         case 'playing':
-        case 'timeupdate':
           _playing = true;
+        // Some players (Vidlink) also send timeupdate while paused, e.g.
+        // after a seek; only time moving forward across two updates in a
+        // row means it's playing.
+        case 'timeupdate':
+          if (_lastEvent == 'timeupdate' && time > _lastReportedTime) {
+            _playing = true;
+          }
         case 'pause':
         case 'ended':
           _playing = false;
       }
+      _lastReportedTime = time;
+      _lastEvent = event;
       // A 'play' event reports where playback was, not where it is now.
       if (event != 'play') {
         _baseTime = time;
@@ -254,6 +292,10 @@ class WebPlayerState extends State<MyWidget> {
       if (duration != null && duration > 0) _duration = duration;
     });
     if (wasPlaying != _playing) _poke();
+    if (_playing && !_soundHintShown && _shield) {
+      _soundHintShown = true;
+      _showKeyHint('Sound starts off. Press M to turn it on.');
+    }
     _maybeResume(time);
   }
 
@@ -283,6 +325,10 @@ class WebPlayerState extends State<MyWidget> {
   /// Whether the current provider takes postMessage seek commands and has a
   /// control layout we can line our buttons up with.
   bool get _supportsCommands => _server?.name == '111Movies';
+
+  /// Providers whose players post progress events once they're playing.
+  bool get _reportsProgress =>
+      _server?.name == '111Movies' || _server?.name == 'Vidlink';
 
   void _seekTo(double seconds) {
     final d = _duration;
@@ -350,9 +396,10 @@ class WebPlayerState extends State<MyWidget> {
   void _saveElapsed() {
     // Skip if the player already reported real progress.
     if (_gotPlayerEvent || !_hasTitle) return;
-    // 111Movies always reports progress, so silence means it isn't playing;
-    // counting wall-clock time would push the resume point forward.
-    if (_supportsCommands) return;
+    // These players report progress while playing, so silence means it
+    // isn't playing; counting wall-clock time would push the resume point
+    // forward.
+    if (_reportsProgress) return;
 
     final elapsedSecs = DateTime.now().difference(_watchStart).inSeconds;
     final progress = _elapsedBaseline + elapsedSecs;
@@ -387,17 +434,16 @@ class WebPlayerState extends State<MyWidget> {
 
   void _maybeHide() {
     if (!mounted || !_playing || _subsOpen || _scrubTo != null) return;
-    // The pointer may be inside a hole, where we get no hover events; hiding
-    // would close the hole under it.
-    final p = _pointer;
-    final layout = _layout;
-    if (p != null &&
-        layout != null &&
-        layout.holes.any((h) => h.inflate(24).contains(p))) {
-      _poke();
-      return;
-    }
     setState(() => _controlsVisible = false);
+  }
+
+  void _showKeyHint(String hint) {
+    _keyHintTimer?.cancel();
+    setState(() => _keyHint = hint);
+    _poke();
+    _keyHintTimer = Timer(const Duration(seconds: 4), () {
+      if (mounted) setState(() => _keyHint = null);
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -484,23 +530,16 @@ class WebPlayerState extends State<MyWidget> {
     }
     return Scaffold(
       backgroundColor: Colors.black,
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          final size = constraints.biggest;
-          final custom =
-              _shield &&
-              _supportsCommands &&
-              _ProviderLayout.keyFor(size) >= _ProviderLayout.minKey;
-          return custom ? _buildCustom(url, size) : _buildPlain(context, url);
-        },
-      ),
+      body:
+          _shield && _customServers.contains(_server?.name)
+              ? _buildCustom(url)
+              : _buildPlain(context, url),
     );
   }
 
   /// Provider's own player under a plain top bar (other sources, phones, or
   /// ad shield off).
   Widget _buildPlain(BuildContext context, String url) {
-    _layout = null;
     return Column(
       children: [
         // Fullscreen is the whole app, so drop the bar; Esc brings it back.
@@ -517,17 +556,12 @@ class WebPlayerState extends State<MyWidget> {
     );
   }
 
-  Widget _buildCustom(String url, Size size) {
-    final layout = _ProviderLayout.forSize(size);
-    _layout = layout;
+  Widget _buildCustom(String url) {
     final visible = _controlsVisible;
     final cue = _cues.isEmpty ? null : cueAt(_cues, _now + _subOffset);
     return MouseRegion(
       cursor: visible ? MouseCursor.defer : SystemMouseCursors.none,
-      onHover: (e) {
-        _pointer = e.localPosition;
-        _poke();
-      },
+      onHover: (_) => _poke(),
       child: GestureDetector(
         behavior: HitTestBehavior.translucent,
         // Clicks on the video (not on a control) toggle the controls.
@@ -550,7 +584,6 @@ class WebPlayerState extends State<MyWidget> {
               url: url,
               shield: true,
               controller: _frame,
-              holes: visible ? layout.holes : const [],
             ),
             // Scrim hides the provider's own error dialog behind our card.
             if (_stalled)
@@ -562,8 +595,14 @@ class WebPlayerState extends State<MyWidget> {
               Positioned(
                 left: 24,
                 right: 24,
-                bottom: visible ? layout.barHeight + 12 : 48,
+                bottom: visible ? _barHeight + 12 : 48,
                 child: IgnorePointer(child: _SubtitleText(cue.text)),
+              ),
+            if (_keyHint != null)
+              Positioned(
+                left: 16,
+                bottom: _barHeight + 8,
+                child: IgnorePointer(child: _HintPill(_keyHint!)),
               ),
             IgnorePointer(
               ignoring: !visible,
@@ -574,8 +613,8 @@ class WebPlayerState extends State<MyWidget> {
                   fit: StackFit.expand,
                   children: [
                     _buildTopOverlay(),
-                    ..._buildBottomOverlay(layout, size),
-                    if (_subsOpen) _buildSubtitlePanel(layout),
+                    _buildBottomOverlay(),
+                    if (_subsOpen) _buildSubtitlePanel(),
                   ],
                 ),
               ),
@@ -593,7 +632,7 @@ class WebPlayerState extends State<MyWidget> {
       top: 0,
       child: Container(
         // Tall enough to cover the provider's own title, Sources button and
-        // Unmute pill, which it shows while the pointer is in a hole.
+        // Unmute pill.
         padding: const EdgeInsets.fromLTRB(8, 10, 16, 90),
         decoration: const BoxDecoration(
           gradient: LinearGradient(
@@ -613,7 +652,7 @@ class WebPlayerState extends State<MyWidget> {
             const SizedBox(width: 4),
             Flexible(child: _titleText(17)),
             const SizedBox(width: 16),
-            if (_hasTitle && streamServers.length > 1)
+            if (_hasTitle && _webServers.length > 1)
               Flexible(
                 flex: 2,
                 child: SingleChildScrollView(
@@ -621,7 +660,7 @@ class WebPlayerState extends State<MyWidget> {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      for (final s in streamServers) ...[
+                      for (final s in _webServers) ...[
                         _SourcePill(
                           label: s.name,
                           selected: s == _server,
@@ -636,8 +675,9 @@ class WebPlayerState extends State<MyWidget> {
             const Spacer(),
             Tooltip(
               message:
-                  'On: clicks can\'t reach the player\'s ads. '
-                  'Off: use the player\'s own controls.',
+                  'On: clicks can\'t reach the player, so its ads can\'t '
+                  'open tabs. Off: use the player\'s own controls (its ads '
+                  'may open tabs).',
               child: _SourcePill(
                 label: 'Ad shield on',
                 selected: true,
@@ -650,175 +690,155 @@ class WebPlayerState extends State<MyWidget> {
     );
   }
 
-  List<Widget> _buildBottomOverlay(_ProviderLayout l, Size size) {
+  Widget _buildBottomOverlay() {
     final duration = _duration;
     final now = _scrubTo ?? _now;
-    final rowCenter = l.rowTop + l.size / 2;
-    final backdropTop = size.height - l.barHeight - 40;
-    Widget at(Rect r, Widget child) =>
-        Positioned.fromRect(rect: r, child: child);
-    return [
-      // Backdrop. It hides the provider's own bar (shown while the pointer is
-      // in a hole), except over its volume slider, which shows through.
-      Positioned(
-        left: 0,
-        right: 0,
-        top: backdropTop,
-        bottom: 0,
-        child: IgnorePointer(
-          child: ClipPath(
-            clipper: _HoleClipper(l.sliderWindow.translate(0, -backdropTop)),
-            child: const DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  // Fully opaque from the seek bar down, so none of the
-                  // provider's own bar shows through.
-                  stops: [0, 0.3, 0.45, 1],
-                  colors: [
-                    Color(0x00000000),
-                    Color(0xE6000000),
-                    Color(0xFF000000),
-                    Color(0xFF000000),
+    final wide = MediaQuery.of(context).size.width >= 900;
+    return Positioned(
+      left: 0,
+      right: 0,
+      bottom: 0,
+      height: _barHeight + 40,
+      child: DecoratedBox(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            stops: [0, 0.4, 1],
+            colors: [Color(0x00000000), Color(0xD9000000), Color(0xF2000000)],
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              SizedBox(
+                height: 28,
+                child: SliderTheme(
+                  data: SliderTheme.of(context).copyWith(
+                    trackHeight: 3.5,
+                    activeTrackColor: _accent,
+                    inactiveTrackColor: Colors.white24,
+                    thumbColor: _accent,
+                    overlayShape: SliderComponentShape.noOverlay,
+                    thumbShape: const RoundSliderThumbShape(
+                      enabledThumbRadius: 6.5,
+                    ),
+                  ),
+                  child: Slider(
+                    min: 0,
+                    max: duration ?? 1,
+                    value: duration == null ? 0 : now.clamp(0, duration),
+                    onChanged:
+                        duration == null
+                            ? null
+                            : (v) {
+                              setState(() => _scrubTo = v);
+                              _poke();
+                            },
+                    onChangeEnd:
+                        duration == null
+                            ? null
+                            : (v) {
+                              setState(() => _scrubTo = null);
+                              _seekTo(v);
+                            },
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                height: 44,
+                child: Row(
+                  children: [
+                    _ControlButton(
+                      icon: Icons.replay_10_rounded,
+                      tooltip: 'Back 10 seconds',
+                      onTap: () => _seekTo(_now - 10),
+                    ),
+                    // Play/pause and sound can only be driven by the user's
+                    // own keys (see the class comment), so these say which.
+                    _ControlButton(
+                      icon:
+                          _playing
+                              ? Icons.pause_rounded
+                              : Icons.play_arrow_rounded,
+                      size: 34,
+                      keyLabel: 'Space',
+                      onTap:
+                          () => _showKeyHint('Press Space to play or pause.'),
+                    ),
+                    _ControlButton(
+                      icon: Icons.forward_10_rounded,
+                      tooltip: 'Forward 10 seconds',
+                      onTap: () => _seekTo(_now + 10),
+                    ),
+                    _ControlButton(
+                      icon: Icons.volume_up_rounded,
+                      keyLabel: 'M',
+                      onTap:
+                          () =>
+                              _showKeyHint('Press M to turn sound on or off.'),
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      '${_formatTime(now)} / '
+                      '${duration == null ? '--:--' : _formatTime(duration)}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        fontFeatures: [FontFeature.tabularFigures()],
+                      ),
+                    ),
+                    const Spacer(),
+                    if (wide)
+                      const Padding(
+                        padding: EdgeInsets.only(right: 12),
+                        child: Text(
+                          'Space play/pause  ·  M sound  ·  ← → 10s',
+                          style: TextStyle(color: Colors.white38, fontSize: 12),
+                        ),
+                      ),
+                    _ControlButton(
+                      icon:
+                          _track != null
+                              ? Icons.closed_caption_rounded
+                              : Icons.closed_caption_off_outlined,
+                      tooltip: 'Subtitles',
+                      highlighted: _track != null,
+                      onTap: _toggleSubtitles,
+                    ),
+                    _ControlButton(
+                      icon:
+                          _fullscreen
+                              ? Icons.fullscreen_exit_rounded
+                              : Icons.fullscreen_rounded,
+                      tooltip: _fullscreen ? 'Exit fullscreen' : 'Fullscreen',
+                      onTap: () {
+                        _fullscreen
+                            ? exitAppFullscreen()
+                            : requestAppFullscreen();
+                        _poke();
+                      },
+                    ),
                   ],
                 ),
               ),
-            ),
+            ],
           ),
         ),
       ),
-      // Seek bar.
-      Positioned(
-        left: l.left,
-        right: l.left,
-        top: l.rowTop - 34,
-        height: 28,
-        child: SliderTheme(
-          data: SliderTheme.of(context).copyWith(
-            trackHeight: 3.5,
-            activeTrackColor: _accent,
-            inactiveTrackColor: Colors.white24,
-            thumbColor: _accent,
-            overlayShape: SliderComponentShape.noOverlay,
-            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6.5),
-          ),
-          child: Slider(
-            min: 0,
-            max: duration ?? 1,
-            value: duration == null ? 0 : now.clamp(0, duration),
-            onChanged:
-                duration == null
-                    ? null
-                    : (v) {
-                      setState(() => _scrubTo = v);
-                      _poke();
-                    },
-            onChangeEnd:
-                duration == null
-                    ? null
-                    : (v) {
-                      setState(() => _scrubTo = null);
-                      _seekTo(v);
-                    },
-          ),
-        ),
-      ),
-      at(
-        l.button(0),
-        _ControlButton(
-          icon: Icons.replay_10_rounded,
-          tooltip: 'Back 10 seconds',
-          onTap: () => _seekTo(_now - 10),
-        ),
-      ),
-      // Drawn only: clicks here go through the hole to the provider's own
-      // play/pause button.
-      at(
-        l.button(1),
-        IgnorePointer(
-          child: _ControlButton(
-            icon: _playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
-            size: 34,
-          ),
-        ),
-      ),
-      at(
-        l.button(2),
-        _ControlButton(
-          icon: Icons.forward_10_rounded,
-          tooltip: 'Forward 10 seconds',
-          onTap: () => _seekTo(_now + 10),
-        ),
-      ),
-      // Same for the volume button; its slider shows through next to it.
-      at(
-        l.button(3),
-        const IgnorePointer(
-          child: _ControlButton(icon: Icons.volume_up_rounded),
-        ),
-      ),
-      Positioned(
-        left: l.sliderWindow.right + 14,
-        top: rowCenter - 10,
-        child: IgnorePointer(
-          child: Text(
-            '${_formatTime(now)} / '
-            '${duration == null ? '--:--' : _formatTime(duration)}',
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              fontFeatures: [FontFeature.tabularFigures()],
-            ),
-          ),
-        ),
-      ),
-      Positioned(
-        right: l.left,
-        top: l.rowTop,
-        height: l.size,
-        child: Row(
-          children: [
-            SizedBox.square(
-              dimension: l.size,
-              child: _ControlButton(
-                icon:
-                    _track != null
-                        ? Icons.closed_caption_rounded
-                        : Icons.closed_caption_off_outlined,
-                tooltip: 'Subtitles',
-                highlighted: _track != null,
-                onTap: _toggleSubtitles,
-              ),
-            ),
-            const SizedBox(width: 6),
-            SizedBox.square(
-              dimension: l.size,
-              child: _ControlButton(
-                icon:
-                    _fullscreen
-                        ? Icons.fullscreen_exit_rounded
-                        : Icons.fullscreen_rounded,
-                tooltip: _fullscreen ? 'Exit fullscreen' : 'Fullscreen',
-                onTap: () {
-                  _fullscreen ? exitAppFullscreen() : requestAppFullscreen();
-                  _poke();
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
-    ];
+    );
   }
 
-  Widget _buildSubtitlePanel(_ProviderLayout l) {
+  Widget _buildSubtitlePanel() {
     final tracks = _tracks;
     const muted = TextStyle(color: Colors.white54, fontSize: 12.5);
     return Positioned(
-      right: l.left,
-      bottom: l.barHeight + 8,
+      right: 16,
+      bottom: _barHeight + 8,
       width: 340,
       child: Material(
         color: const Color(0xF21F1E26),
@@ -1005,7 +1025,7 @@ class WebPlayerState extends State<MyWidget> {
   }
 
   Widget _buildTopBar(BuildContext context) {
-    final showSources = _hasTitle && streamServers.length > 1;
+    final showSources = _hasTitle && _webServers.length > 1;
     const hint = TextStyle(color: Colors.white38, fontSize: 12);
     return Container(
       width: double.infinity,
@@ -1049,7 +1069,7 @@ class WebPlayerState extends State<MyWidget> {
                           ),
                         ),
                       ),
-                      for (final s in streamServers) ...[
+                      for (final s in _webServers) ...[
                         _SourcePill(
                           label: s.name,
                           selected: s == _server,
@@ -1089,7 +1109,7 @@ class WebPlayerState extends State<MyWidget> {
                       ? 'Clicks reach the player, so its ads may open tabs.'
                       : 'Clicks on the video are blocked so ads can\'t open '
                           'tabs. Keys: Space play/pause · ← → seek · M mute. '
-                          'Full controls work on 111Movies.',
+                          'Widen the window for the full controls.',
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: hint,
@@ -1111,110 +1131,6 @@ String _formatTime(double seconds) {
   return h > 0 ? '$h:${m.toString().padLeft(2, '0')}:$sec' : '$m:$sec';
 }
 
-/// Where the 111Movies player puts its bottom-left controls. Measured in its
-/// own frame at many sizes; the layout scales with the width of the 16:9
-/// picture that fits the frame, so we interpolate on that. The buttons are,
-/// left to right: back 10s, play/pause, forward 10s, volume, then the volume
-/// slider (96x24, 8px right of the volume button, centred 10px lower).
-class _ProviderLayout {
-  _ProviderLayout._(this.frame, this.size, this.left, this.step, this.rowTop);
-
-  static const _keys = [
-    760.0, 800.0, 900.0, 1024.0, 1280.0, 1365.0, 1440.0, //
-    1536.0, 1600.0, 1680.0, 1742.0, 1920.0, 2560.0,
-  ];
-  static const _sizes = [
-    37.0, 38.0, 39.0, 40.0, 42.0, 43.0, 44.0, //
-    45.0, 45.0, 46.0, 46.0, 48.0, 53.0,
-  ];
-  static const _lefts = [
-    5.0, 6.0, 6.0, 7.0, 9.0, 9.0, 9.0, //
-    9.0, 9.0, 9.0, 9.0, 8.0, 7.0,
-  ];
-  static const _steps = [
-    44.0, 45.0, 46.0, 48.0, 51.0, 53.0, 54.0, //
-    55.0, 55.0, 56.0, 56.0, 58.0, 63.0,
-  ];
-  static const _bottomPads = [
-    14.0, 15.0, 16.0, 17.0, 19.0, 19.0, 20.0, //
-    20.0, 20.0, 20.0, 20.0, 20.0, 20.0,
-  ];
-
-  /// Smallest frame we've measured; below it we fall back to the plain
-  /// player rather than guess.
-  static const minKey = 760.0;
-
-  static double keyFor(Size frame) =>
-      frame.width < frame.height * 16 / 9 ? frame.width : frame.height * 16 / 9;
-
-  final Size frame;
-  final double size;
-  final double left;
-  final double step;
-  final double rowTop;
-
-  static double _at(List<double> ys, double k) {
-    if (k <= _keys.first) return ys.first;
-    for (var i = 1; i < _keys.length; i++) {
-      if (k <= _keys[i]) {
-        final t = (k - _keys[i - 1]) / (_keys[i] - _keys[i - 1]);
-        return lerpDouble(ys[i - 1], ys[i], t)!;
-      }
-    }
-    return ys.last;
-  }
-
-  factory _ProviderLayout.forSize(Size frame) {
-    final k = keyFor(frame);
-    final size = _at(_sizes, k);
-    return _ProviderLayout._(
-      frame,
-      size,
-      _at(_lefts, k),
-      _at(_steps, k),
-      frame.height - _at(_bottomPads, k) - size,
-    );
-  }
-
-  Rect button(int i) => Rect.fromLTWH(left + i * step, rowTop, size, size);
-
-  /// The volume slider, with a little margin.
-  Rect get sliderWindow {
-    final volume = button(3);
-    return Rect.fromCenter(
-      center: Offset(volume.right + 8 + 48, volume.center.dy + 10),
-      width: 96 + 8,
-      height: 24 + 8,
-    );
-  }
-
-  /// Height of our bottom bar, from the frame's bottom edge.
-  double get barHeight => frame.height - rowTop + 44;
-
-  /// Shield cut-outs: play/pause, and the volume button plus its slider.
-  List<Rect> get holes => [
-    button(1).inflate(2),
-    button(3).inflate(2).expandToInclude(sliderWindow),
-  ];
-}
-
-/// Clips [hole] out of the painted area.
-class _HoleClipper extends CustomClipper<Path> {
-  _HoleClipper(this.hole);
-
-  final Rect hole;
-
-  @override
-  Path getClip(Size size) =>
-      Path()
-        ..fillType = PathFillType.evenOdd
-        ..addRect(Offset.zero & size)
-        ..addRRect(RRect.fromRectAndRadius(hole, const Radius.circular(8)));
-
-  @override
-  bool shouldReclip(_HoleClipper oldClipper) => oldClipper.hole != hole;
-}
-
 class _ControlButton extends StatelessWidget {
   const _ControlButton({
     required this.icon,
@@ -1222,6 +1138,7 @@ class _ControlButton extends StatelessWidget {
     this.tooltip,
     this.size = 28,
     this.highlighted = false,
+    this.keyLabel,
   });
 
   final IconData icon;
@@ -1230,28 +1147,102 @@ class _ControlButton extends StatelessWidget {
   final double size;
   final bool highlighted;
 
+  /// The keyboard key that does this, shown as a small key cap.
+  final String? keyLabel;
+
   @override
   Widget build(BuildContext context) {
-    // Opaque disc so the provider's own icon underneath never shows.
+    final iconWidget = Icon(
+      icon,
+      size: size,
+      color: highlighted ? _accent : Colors.white,
+    );
     final button = Material(
-      color: Colors.black,
-      shape: const CircleBorder(),
+      color: Colors.transparent,
+      shape: const StadiumBorder(),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
-        child: SizedBox(
-          width: 44,
-          height: 44,
-          child: Icon(
-            icon,
-            size: size,
-            color: highlighted ? _accent : Colors.white,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6),
+          child: SizedBox(
+            height: 44,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(width: 34, child: Center(child: iconWidget)),
+                if (keyLabel != null) _KeyCap(keyLabel!),
+              ],
+            ),
           ),
         ),
       ),
     );
-    final sized = FittedBox(child: button);
-    return tooltip == null ? sized : Tooltip(message: tooltip!, child: sized);
+    return tooltip == null ? button : Tooltip(message: tooltip!, child: button);
+  }
+}
+
+class _KeyCap extends StatelessWidget {
+  const _KeyCap(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(left: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: Colors.white38),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: Colors.white70,
+          fontSize: 10.5,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+}
+
+/// A short instruction shown above the control bar.
+class _HintPill extends StatelessWidget {
+  const _HintPill(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+      decoration: BoxDecoration(
+        color: const Color(0xF21F1E26),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0x59F7BB0D)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(
+            Icons.keyboard_rounded,
+            color: Color(0xFFF7BB0D),
+            size: 18,
+          ),
+          const SizedBox(width: 10),
+          Text(
+            text,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 

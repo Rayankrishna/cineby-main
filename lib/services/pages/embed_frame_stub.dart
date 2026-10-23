@@ -9,13 +9,11 @@ class EmbedFrame extends StatelessWidget {
     super.key,
     required this.url,
     this.shield = false,
-    this.holes = const [],
     this.controller,
   });
 
   final String url;
   final bool shield;
-  final List<Rect> holes;
   final EmbedFrameController? controller;
 
   @override
@@ -28,9 +26,6 @@ StreamSubscription<Object?>? listenToWindowMessages(
 ) => null;
 
 bool get webHasKeyboardPointer => false;
-
-StreamSubscription<Object?>? listenToFrameFocus(void Function() onFocus) =>
-    null;
 
 bool appIsFullscreen() => false;
 

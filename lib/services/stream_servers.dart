@@ -77,10 +77,12 @@ final List<StreamServer> streamServers = [
   // structure as 111Movies.
   StreamServer(
     name: 'VidFast',
-    hostMatch: 'vidfast.pro',
+    // vidfast.pro now 301s to vidfast.vc; match either so older history
+    // and votes still resolve.
+    hostMatch: 'vidfast.',
     buildUrl: (id, mt, s, e) => mt == 'tv'
-        ? 'https://vidfast.pro/tv/$id/$s/$e'
-        : 'https://vidfast.pro/movie/$id',
+        ? 'https://vidfast.vc/tv/$id/$s/$e'
+        : 'https://vidfast.vc/movie/$id',
   ),
   StreamServer(
     name: 'VidSrc',

@@ -38,9 +38,10 @@ class _MyHomePageState extends State<MyHomePage> {
   // Build "For You" recommendation seeds from the most recent history items
   // (newest first), then ask the store to fetch + rank recommendations.
   Future<void> _loadForYou() async {
-    final seeds = historyStore.items
-        .map((h) => (tmdbId: h.tmdbId, mediaType: h.mediaType))
-        .toList();
+    final seeds =
+        historyStore.items
+            .map((h) => (tmdbId: h.tmdbId, mediaType: h.mediaType))
+            .toList();
     await _searchStore.fetchForYou(seeds);
   }
 
@@ -103,31 +104,51 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 
+  void _clearSearch() {
+    _searchController.clear();
+    _searchStore.setSearchQuery('');
+    _searchFocus.unfocus();
+    setState(() {});
+  }
+
   Widget _buildHeader() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 4),
-      child: Row(
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(9),
-            child: Image.asset(
-              'assets/favicon.jpg',
-              width: 32,
-              height: 32,
-              fit: BoxFit.cover,
+      // Tapping the logo goes "home": clears any search. Aligned so only the
+      // logo itself is tappable, not the whole row.
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: GestureDetector(
+          onTap: _clearSearch,
+          behavior: HitTestBehavior.opaque,
+          child: MouseRegion(
+            cursor: SystemMouseCursors.click,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(9),
+                  child: Image.asset(
+                    'assets/favicon.jpg',
+                    width: 32,
+                    height: 32,
+                    fit: BoxFit.cover,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                const Text(
+                  "Reelix",
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.6,
+                    color: Colors.white,
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(width: 10),
-          const Text(
-            "Reelix",
-            style: TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.w800,
-              letterSpacing: -0.6,
-              color: Colors.white,
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -204,12 +225,7 @@ class _MyHomePageState extends State<MyHomePage> {
                   ),
                   if (hasText) ...[
                     GestureDetector(
-                      onTap: () {
-                        _searchController.clear();
-                        _searchStore.setSearchQuery('');
-                        _searchFocus.unfocus();
-                        setState(() {});
-                      },
+                      onTap: _clearSearch,
                       behavior: HitTestBehavior.opaque,
                       child: Container(
                         width: 22,
@@ -401,30 +417,35 @@ class _MyHomePageState extends State<MyHomePage> {
                         _categoryChip(
                           ctx,
                           label: 'Anime',
-                          onTap: () => Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => const GenreResultsPage(
-                                genreId: 16,
-                                genreName: 'Anime',
-                                mediaType: 'tv',
-                                extraQuery: '&with_origin_country=JP|CN',
+                          onTap:
+                              () => Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder:
+                                      (_) => const GenreResultsPage(
+                                        genreId: 16,
+                                        genreName: 'Anime',
+                                        mediaType: 'tv',
+                                        extraQuery:
+                                            '&with_origin_country=JP|CN',
+                                      ),
+                                ),
                               ),
-                            ),
-                          ),
                         ),
                         for (final g in _movieGenres)
                           _categoryChip(
                             ctx,
                             label: g.$2,
-                            onTap: () => Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => GenreResultsPage(
-                                  genreId: g.$1,
-                                  genreName: g.$2,
-                                  mediaType: 'movie',
+                            onTap:
+                                () => Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder:
+                                        (_) => GenreResultsPage(
+                                          genreId: g.$1,
+                                          genreName: g.$2,
+                                          mediaType: 'movie',
+                                        ),
+                                  ),
                                 ),
-                              ),
-                            ),
                           ),
                       ],
                     ),
