@@ -57,6 +57,11 @@ class WebPlayerState extends State<MyWidget> {
   // keyboard.
   bool _shield = true;
   bool _fullscreen = false;
+  // Safari on iPhone can't fullscreen a page; there the button turns the
+  // screen into just the player instead (iPhone only).
+  bool _pseudoFullscreen = false;
+  bool get _isFullscreen => _fullscreen || _pseudoFullscreen;
+  bool get _canFullscreen => appFullscreenSupported || isIPhone;
   StreamSubscription<Object?>? _fullscreenSub;
 
   final EmbedFrameController _frame = EmbedFrameController();
@@ -437,6 +442,15 @@ class WebPlayerState extends State<MyWidget> {
     setState(() => _controlsVisible = false);
   }
 
+  void _toggleFullscreen() {
+    if (appFullscreenSupported) {
+      _fullscreen ? exitAppFullscreen() : requestAppFullscreen();
+    } else if (isIPhone) {
+      setState(() => _pseudoFullscreen = !_pseudoFullscreen);
+    }
+    _poke();
+  }
+
   void _showKeyHint(String hint) {
     _keyHintTimer?.cancel();
     setState(() => _keyHint = hint);
@@ -540,18 +554,44 @@ class WebPlayerState extends State<MyWidget> {
   /// Provider's own player under a plain top bar (other sources, phones, or
   /// ad shield off).
   Widget _buildPlain(BuildContext context, String url) {
-    return Column(
+    return Stack(
+      fit: StackFit.expand,
       children: [
-        // Fullscreen is the whole app, so drop the bar; Esc brings it back.
-        if (!_fullscreen) _buildTopBar(context),
-        Expanded(
-          child: EmbedFrame(
-            key: ValueKey('$url#$_reloads'),
-            url: url,
-            shield: _shield,
-            controller: _frame,
-          ),
+        Column(
+          children: [
+            // Fullscreen is the whole app, so drop the bar; Esc brings it
+            // back. On iPhone only the player is left, plus the ✕ below.
+            if (!_isFullscreen) _buildTopBar(context),
+            Expanded(
+              key: const ValueKey('player'),
+              child: EmbedFrame(
+                key: ValueKey('$url#$_reloads'),
+                url: url,
+                shield: _shield,
+                controller: _frame,
+              ),
+            ),
+          ],
         ),
+        if (_pseudoFullscreen)
+          Positioned(
+            top: 10,
+            left: 10,
+            child: TapCatcher(
+              child: Material(
+                color: Colors.black54,
+                shape: const CircleBorder(),
+                child: IconButton(
+                  tooltip: 'Exit full screen',
+                  icon: const Icon(
+                    Icons.fullscreen_exit_rounded,
+                    color: Colors.white,
+                  ),
+                  onPressed: _toggleFullscreen,
+                ),
+              ),
+            ),
+          ),
       ],
     );
   }
@@ -810,19 +850,16 @@ class WebPlayerState extends State<MyWidget> {
                       highlighted: _track != null,
                       onTap: _toggleSubtitles,
                     ),
-                    _ControlButton(
-                      icon:
-                          _fullscreen
-                              ? Icons.fullscreen_exit_rounded
-                              : Icons.fullscreen_rounded,
-                      tooltip: _fullscreen ? 'Exit fullscreen' : 'Fullscreen',
-                      onTap: () {
-                        _fullscreen
-                            ? exitAppFullscreen()
-                            : requestAppFullscreen();
-                        _poke();
-                      },
-                    ),
+                    if (_canFullscreen)
+                      _ControlButton(
+                        icon:
+                            _isFullscreen
+                                ? Icons.fullscreen_exit_rounded
+                                : Icons.fullscreen_rounded,
+                        tooltip:
+                            _isFullscreen ? 'Exit fullscreen' : 'Fullscreen',
+                        onTap: _toggleFullscreen,
+                      ),
                   ],
                 ),
               ),
@@ -1098,11 +1135,15 @@ class WebPlayerState extends State<MyWidget> {
                 selected: _shield,
                 onTap: () => setState(() => _shield = !_shield),
               ),
-              IconButton(
-                tooltip: 'Fullscreen',
-                icon: const Icon(Icons.fullscreen_rounded, color: Colors.white),
-                onPressed: requestAppFullscreen,
-              ),
+              if (_canFullscreen)
+                IconButton(
+                  tooltip: 'Fullscreen',
+                  icon: const Icon(
+                    Icons.fullscreen_rounded,
+                    color: Colors.white,
+                  ),
+                  onPressed: _toggleFullscreen,
+                ),
               Expanded(
                 child: Text(
                   !_shield

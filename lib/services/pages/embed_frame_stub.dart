@@ -27,6 +27,20 @@ StreamSubscription<Object?>? listenToWindowMessages(
 
 bool get webHasKeyboardPointer => false;
 
+bool get appFullscreenSupported => false;
+
+bool get isIPhone => false;
+
+/// Mobile stub — nothing to catch taps from.
+class TapCatcher extends StatelessWidget {
+  const TapCatcher({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => child;
+}
+
 bool appIsFullscreen() => false;
 
 void requestAppFullscreen() {}

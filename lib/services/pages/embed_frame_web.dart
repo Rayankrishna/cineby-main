@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:js_interop';
+import 'dart:js_interop_unsafe';
 
 import 'package:app_web_ui/services/pages/embed_frame_controller.dart';
 import 'package:flutter/material.dart';
@@ -243,31 +244,108 @@ StreamSubscription<Object?>? listenToWindowMessages(
 bool get webHasKeyboardPointer =>
     web.window.matchMedia('(hover: hover) and (pointer: fine)').matches;
 
-bool appIsFullscreen() => web.document.fullscreenElement != null;
+// Safari on iPad only has the webkit-prefixed Fullscreen API (newer versions
+// have both), and Safari on iPhone has none for anything but a bare <video>,
+// so every call checks what exists instead of assuming the standard names.
+JSObject get _doc => web.document as JSObject;
+
+/// Safari on iPhone (iPad's user agent says iPad or Macintosh instead).
+bool get isIPhone {
+  final ua = web.window.navigator.userAgent;
+  return ua.contains('iPhone') || ua.contains('iPod');
+}
+
+/// Makes [child] tappable where it sits over the iframe. A platform view
+/// swallows pointer events even under Flutter widgets, so this puts a real
+/// DOM element behind [child]; taps on it bubble back to Flutter.
+class TapCatcher extends StatelessWidget {
+  const TapCatcher({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: HtmlElementView.fromTagName(
+            tagName: 'div',
+            onElementCreated: (element) {
+              (element as web.HTMLElement).style
+                ..width = '100%'
+                ..height = '100%';
+            },
+          ),
+        ),
+        child,
+      ],
+    );
+  }
+}
+
+/// Whether the browser can make the page fullscreen at all. False on iPhone.
+/// Needs both the "enabled" flag and a request method, since a browser may
+/// report one without the other.
+bool get appFullscreenSupported {
+  final root = web.document.documentElement as JSObject?;
+  if (root == null) return false;
+  final enabled =
+      _doc['fullscreenEnabled'].dartify() == true ||
+      _doc['webkitFullscreenEnabled'].dartify() == true;
+  return enabled &&
+      (root.has('requestFullscreen') || root.has('webkitRequestFullscreen'));
+}
+
+bool appIsFullscreen() =>
+    _doc['fullscreenElement'] != null ||
+    _doc['webkitFullscreenElement'] != null;
 
 /// Fullscreens the whole app rather than the iframe, so the ad shield stays
 /// on top of the player.
 void requestAppFullscreen() {
-  final root = web.document.documentElement;
+  final root = web.document.documentElement as JSObject?;
   if (root == null) return;
-  unawaited(root.requestFullscreen().toDart.catchError((_) => null));
+  try {
+    if (root.has('requestFullscreen')) {
+      final result = root.callMethod<JSAny?>('requestFullscreen'.toJS);
+      if (result != null && result.isA<JSPromise>()) {
+        unawaited((result as JSPromise).toDart.catchError((_) => null));
+      }
+    } else if (root.has('webkitRequestFullscreen')) {
+      root.callMethod<JSAny?>('webkitRequestFullscreen'.toJS);
+    }
+  } catch (_) {}
 }
 
 void exitAppFullscreen() {
   if (!appIsFullscreen()) return;
-  unawaited(web.document.exitFullscreen().toDart.catchError((_) => null));
+  try {
+    if (_doc.has('exitFullscreen')) {
+      final result = _doc.callMethod<JSAny?>('exitFullscreen'.toJS);
+      if (result != null && result.isA<JSPromise>()) {
+        unawaited((result as JSPromise).toDart.catchError((_) => null));
+      }
+    } else if (_doc.has('webkitExitFullscreen')) {
+      _doc.callMethod<JSAny?>('webkitExitFullscreen'.toJS);
+    }
+  } catch (_) {}
 }
 
 StreamSubscription<Object?>? listenToFullscreenChange(
   void Function() onChange,
 ) {
-  // Wired by hand: package:web's fullscreenChangeEvent listens for the
-  // legacy 'webkitfullscreenchange' name, which current browsers don't fire.
+  // Wired by hand: package:web's fullscreenChangeEvent only listens for the
+  // legacy 'webkitfullscreenchange' name. Listen for both, since older
+  // Safari fires only the prefixed one.
   final controller = StreamController<Object?>();
   final listener = ((web.Event _) => controller.add(null)).toJS;
-  web.document.addEventListener('fullscreenchange', listener);
+  for (final name in ['fullscreenchange', 'webkitfullscreenchange']) {
+    web.document.addEventListener(name, listener);
+  }
   controller.onCancel = () {
-    web.document.removeEventListener('fullscreenchange', listener);
+    for (final name in ['fullscreenchange', 'webkitfullscreenchange']) {
+      web.document.removeEventListener(name, listener);
+    }
     controller.close();
   };
   return controller.stream.listen((_) => onChange());
