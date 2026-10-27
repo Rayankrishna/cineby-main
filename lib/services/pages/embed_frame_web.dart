@@ -255,6 +255,19 @@ bool get isIPhone {
   return ua.contains('iPhone') || ua.contains('iPod');
 }
 
+/// Safari's engine: Safari itself, and every browser on iPhone/iPad (they
+/// all have to use WebKit).
+bool get isSafariEngine {
+  final ua = web.window.navigator.userAgent;
+  if (RegExp('iPhone|iPad|iPod').hasMatch(ua)) return true;
+  // iPadOS asks for desktop sites with a Mac user agent.
+  if (ua.contains('Macintosh') && web.window.navigator.maxTouchPoints > 1) {
+    return true;
+  }
+  return ua.contains('Safari') &&
+      !RegExp('Chrome|Chromium|Edg|OPR|Firefox').hasMatch(ua);
+}
+
 /// Makes [child] tappable where it sits over the iframe. A platform view
 /// swallows pointer events even under Flutter widgets, so this puts a real
 /// DOM element behind [child]; taps on it bubble back to Flutter.

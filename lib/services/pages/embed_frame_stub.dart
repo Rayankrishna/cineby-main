@@ -31,6 +31,8 @@ bool get appFullscreenSupported => false;
 
 bool get isIPhone => false;
 
+bool get isSafariEngine => false;
+
 /// Mobile stub — nothing to catch taps from.
 class TapCatcher extends StatelessWidget {
   const TapCatcher({super.key, required this.child});

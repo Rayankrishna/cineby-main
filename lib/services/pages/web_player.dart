@@ -53,12 +53,13 @@ class WebPlayerState extends State<MyWidget> {
   String? _votedFor;
 
   // Ad shield: blocks clicks into the embed so its ads can't open tabs. The
-  // player is then driven by keys, so it starts on only where there's a
-  // keyboard.
+  // player is then driven by keys, so it's on wherever there's a keyboard
+  // (see [_shieldFor]); there's no toggle.
   bool _shield = true;
   bool _fullscreen = false;
-  // Safari on iPhone can't fullscreen a page; there the button turns the
-  // screen into just the player instead (iPhone only).
+  // The site's own full screen: just the player and an exit button. Mobile
+  // web starts in it; on iPhone, which can't fullscreen a page, the
+  // fullscreen button uses it too.
   bool _pseudoFullscreen = false;
   bool get _isFullscreen => _fullscreen || _pseudoFullscreen;
   bool get _canFullscreen => appFullscreenSupported || isIPhone;
@@ -81,6 +82,16 @@ class WebPlayerState extends State<MyWidget> {
   bool _stalled = false;
   Timer? _stallTimer;
   int _reloads = 0;
+  // Safari watchdog: 111Movies' stream has a stretch near the start that
+  // Safari can't decode, and the video just freezes there ("Media failed to
+  // decode"; its own player does the same outside our site). When time
+  // stops moving while it should be playing, reload and jump past it.
+  DateTime _lastProgressAt = DateTime.now();
+  double? _recoverTo;
+  int _recoverSeeks = 0;
+  double? _lastRecoveryAt;
+  int _recoveries = 0;
+  static const _maxRecoveries = 5;
   bool _eventSinceLoad = false;
   // While dragging the seek bar.
   double? _scrubTo;
@@ -94,6 +105,7 @@ class WebPlayerState extends State<MyWidget> {
 
   // Subtitles.
   bool _subsOpen = false;
+  bool _serversOpen = false;
   bool _subsLoading = false;
   String? _subsError;
   List<WebSubtitleTrack>? _tracks;
@@ -115,13 +127,18 @@ class WebPlayerState extends State<MyWidget> {
       if (mounted) setState(() => _fullscreen = appIsFullscreen());
     });
     _shield = webHasKeyboardPointer;
+    // Mobile web opens the player in the site's own full screen (just the
+    // player and an exit button), not the system fullscreen.
+    _pseudoFullscreen = !webHasKeyboardPointer;
     // Fallback progress saving for providers that don't post player events.
     _elapsedTimer = Timer.periodic(
       const Duration(seconds: 15),
       (_) => _saveElapsed(),
     );
     _tick = Timer.periodic(const Duration(milliseconds: 250), (_) {
-      if (mounted && _playing) setState(() {});
+      if (!mounted) return;
+      if (_playing) setState(() {});
+      _checkFrozen();
     });
     _pickInitialServer();
     _poke();
@@ -141,7 +158,10 @@ class WebPlayerState extends State<MyWidget> {
       server = _webServers.where((s) => s.name == best).firstOrNull;
     }
     if (!mounted) return;
-    setState(() => _server = server ?? _webServers.first);
+    setState(() {
+      _server = server ?? _webServers.first;
+      _shield = _shieldFor(_server!);
+    });
     _watchForStall();
   }
 
@@ -158,6 +178,31 @@ class WebPlayerState extends State<MyWidget> {
   }
 
   /// Reloads the current source from scratch.
+  void _checkFrozen() {
+    if (!isSafariEngine || !_playing) return;
+    if (_recoveries >= _maxRecoveries) return;
+    if (DateTime.now().difference(_lastProgressAt).inSeconds < 5) return;
+    // Skip 2s past the freeze; further if the same spot froze again.
+    final frozeAt = _lastReportedTime < 0 ? 0.0 : _lastReportedTime;
+    final again =
+        _lastRecoveryAt != null && (frozeAt - _lastRecoveryAt!).abs() < 6;
+    final target = frozeAt + (again ? 8 : 2);
+    _recoveries++;
+    _lastRecoveryAt = target;
+    _recoverTo = target;
+    _recoverSeeks = 0;
+    _lastProgressAt = DateTime.now();
+    setState(() {
+      _reloads++;
+      _playing = false;
+      // The recovery seek replaces the usual resume.
+      _resumeSent = true;
+      _lastReportedTime = -1;
+      _lastEvent = null;
+    });
+    _watchForStall();
+  }
+
   void _reload() {
     setState(() {
       _reloads++;
@@ -184,11 +229,16 @@ class WebPlayerState extends State<MyWidget> {
     );
   }
 
+  /// Our ad-free player is driven by keys, so it needs a keyboard.
+  bool _shieldFor(StreamServer server) => webHasKeyboardPointer;
+
   void _switchServer(StreamServer server) {
     if (server == _server) return;
     _saveElapsed();
     setState(() {
       _server = server;
+      _shield = _shieldFor(server);
+      _serversOpen = false;
       // The new source starts from scratch, so restart the elapsed-time
       // fallback from wherever we last got to.
       _gotPlayerEvent = false;
@@ -201,6 +251,9 @@ class WebPlayerState extends State<MyWidget> {
       _lastReportedTime = -1;
       _lastEvent = null;
       _soundHintShown = false;
+      _recoverTo = null;
+      _lastRecoveryAt = null;
+      _recoveries = 0;
       _baseTime = _elapsedBaseline.toDouble();
       _baseAt = DateTime.now();
     });
@@ -270,6 +323,11 @@ class WebPlayerState extends State<MyWidget> {
     if (!mounted) return;
     _eventSinceLoad = true;
     if (_stalled) _stalled = false;
+    if ((event == 'timeupdate' && time > _lastReportedTime) ||
+        event == 'seeked' ||
+        event == 'play') {
+      _lastProgressAt = DateTime.now();
+    }
     final wasPlaying = _playing;
     setState(() {
       switch (event) {
@@ -300,6 +358,21 @@ class WebPlayerState extends State<MyWidget> {
     if (_playing && !_soundHintShown && _shield) {
       _soundHintShown = true;
       _showKeyHint('Sound starts off. Press M to turn it on.');
+    }
+    // After a watchdog reload, jump past the spot that froze. The player
+    // also restores its own last position on load, which can land after our
+    // seek and put it back on the bad spot, so keep re-sending until it's
+    // actually past it.
+    final recoverTo = _recoverTo;
+    if (recoverTo != null && (event == 'play' || event == 'timeupdate')) {
+      if (event == 'timeupdate' && time >= recoverTo - 1) {
+        _recoverTo = null;
+      } else if (_recoverSeeks < 8) {
+        _recoverSeeks++;
+        _seekTo(recoverTo);
+      } else {
+        _recoverTo = null;
+      }
     }
     _maybeResume(time);
   }
@@ -438,12 +511,20 @@ class WebPlayerState extends State<MyWidget> {
   }
 
   void _maybeHide() {
-    if (!mounted || !_playing || _subsOpen || _scrubTo != null) return;
+    if (!mounted ||
+        !_playing ||
+        _subsOpen ||
+        _serversOpen ||
+        _scrubTo != null) {
+      return;
+    }
     setState(() => _controlsVisible = false);
   }
 
   void _toggleFullscreen() {
-    if (appFullscreenSupported) {
+    if (_pseudoFullscreen) {
+      setState(() => _pseudoFullscreen = false);
+    } else if (appFullscreenSupported) {
       _fullscreen ? exitAppFullscreen() : requestAppFullscreen();
     } else if (isIPhone) {
       setState(() => _pseudoFullscreen = !_pseudoFullscreen);
@@ -464,7 +545,10 @@ class WebPlayerState extends State<MyWidget> {
   // Subtitles
 
   Future<void> _toggleSubtitles() async {
-    setState(() => _subsOpen = !_subsOpen);
+    setState(() {
+      _subsOpen = !_subsOpen;
+      _serversOpen = false;
+    });
     _poke();
     if (!_subsOpen || _tracks != null || _subsLoading || !_hasTitle) return;
     setState(() {
@@ -606,8 +690,11 @@ class WebPlayerState extends State<MyWidget> {
         behavior: HitTestBehavior.translucent,
         // Clicks on the video (not on a control) toggle the controls.
         onTap: () {
-          if (_subsOpen) {
-            setState(() => _subsOpen = false);
+          if (_subsOpen || _serversOpen) {
+            setState(() {
+              _subsOpen = false;
+              _serversOpen = false;
+            });
             _poke();
           } else if (_controlsVisible && _playing) {
             _hideTimer?.cancel();
@@ -655,6 +742,7 @@ class WebPlayerState extends State<MyWidget> {
                     _buildTopOverlay(),
                     _buildBottomOverlay(),
                     if (_subsOpen) _buildSubtitlePanel(),
+                    if (_serversOpen) _buildServerPanel(),
                   ],
                 ),
               ),
@@ -712,18 +800,6 @@ class WebPlayerState extends State<MyWidget> {
                   ),
                 ),
               ),
-            const Spacer(),
-            Tooltip(
-              message:
-                  'On: clicks can\'t reach the player, so its ads can\'t '
-                  'open tabs. Off: use the player\'s own controls (its ads '
-                  'may open tabs).',
-              child: _SourcePill(
-                label: 'Ad shield on',
-                selected: true,
-                onTap: () => setState(() => _shield = false),
-              ),
-            ),
           ],
         ),
       ),
@@ -841,6 +917,19 @@ class WebPlayerState extends State<MyWidget> {
                           style: TextStyle(color: Colors.white38, fontSize: 12),
                         ),
                       ),
+                    if (_webServers.length > 1)
+                      _ControlButton(
+                        icon: Icons.dns_rounded,
+                        tooltip: 'Server',
+                        highlighted: _serversOpen,
+                        onTap: () {
+                          setState(() {
+                            _serversOpen = !_serversOpen;
+                            _subsOpen = false;
+                          });
+                          _poke();
+                        },
+                      ),
                     _ControlButton(
                       icon:
                           _track != null
@@ -863,6 +952,46 @@ class WebPlayerState extends State<MyWidget> {
                   ],
                 ),
               ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildServerPanel() {
+    return Positioned(
+      right: 16,
+      bottom: _barHeight + 8,
+      width: 340,
+      child: Material(
+        color: const Color(0xF21F1E26),
+        borderRadius: BorderRadius.circular(14),
+        clipBehavior: Clip.antiAlias,
+        child: Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 14, 16, 6),
+                child: Text(
+                  'Server',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              for (final s in _webServers)
+                _TrackTile(
+                  title: s.name,
+                  subtitle: 'Ad-free controls',
+                  selected: s == _server,
+                  onTap: () => _switchServer(s),
+                ),
             ],
           ),
         ),
@@ -1126,38 +1255,12 @@ class WebPlayerState extends State<MyWidget> {
                 ),
             ],
           ),
-          // The ad shield gets its own line so the toggle stays put when the
-          // hint text changes length.
-          Row(
-            children: [
-              _SourcePill(
-                label: _shield ? 'Ad shield on' : 'Ad shield off',
-                selected: _shield,
-                onTap: () => setState(() => _shield = !_shield),
-              ),
-              if (_canFullscreen)
-                IconButton(
-                  tooltip: 'Fullscreen',
-                  icon: const Icon(
-                    Icons.fullscreen_rounded,
-                    color: Colors.white,
-                  ),
-                  onPressed: _toggleFullscreen,
-                ),
-              Expanded(
-                child: Text(
-                  !_shield
-                      ? 'Clicks reach the player, so its ads may open tabs.'
-                      : 'Clicks on the video are blocked so ads can\'t open '
-                          'tabs. Keys: Space play/pause · ← → seek · M mute. '
-                          'Widen the window for the full controls.',
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: hint,
-                ),
-              ),
-            ],
-          ),
+          if (_canFullscreen)
+            IconButton(
+              tooltip: 'Fullscreen',
+              icon: const Icon(Icons.fullscreen_rounded, color: Colors.white),
+              onPressed: _toggleFullscreen,
+            ),
         ],
       ),
     );
