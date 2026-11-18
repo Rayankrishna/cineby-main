@@ -54,25 +54,16 @@ class RacedStream {
   });
 }
 
-/// Runs the same auto-clicker + `shouldInterceptRequest` capture pipeline as
-/// the player's headless extractor, but as a one-shot function that:
-///   • does NOT modify orientation / status bar / wakelock
-///   • does NOT mount any visible widget
-///   • disposes the headless webview as soon as a stream URL is captured
-///
-/// Use this for "silent" flows like downloads where the user should never
-/// see a loading screen or have their device flipped to landscape.
-///
-/// Android only — falls through to `null` on other platforms because
-/// `shouldInterceptRequest` doesn't exist there. Times out after [timeout]
-/// (default 45 s) and resolves to `null` if no stream URL is captured.
 Future<ExtractedStream?> extractStream({
   required String embedUrl,
   Duration timeout = const Duration(seconds: 45),
   Duration subtitleGrace = const Duration(milliseconds: 800),
   StreamExtractionHandle? handle,
 }) async {
-  if (kIsWeb || !Platform.isAndroid) return null;
+  // Headless capture needs a native WebView. Web falls through to the
+  // iframe player; Android uses shouldInterceptRequest; iOS uses
+  // onLoadResource (WKWebView has no http(s) request interceptor).
+  if (kIsWeb) return null;
   if (handle?.isCancelled == true) return null;
 
   final completer = Completer<ExtractedStream?>();
@@ -83,6 +74,27 @@ Future<ExtractedStream?> extractStream({
   String? streamUrl;
   final subtitleUrls = <String>[];
   final headers = <String, String>{};
+
+  // CDNs almost always key off the embed origin, not the CDN host. Using the
+  // stream host as Referer (common when onLoadResource gives no headers) is
+  // a frequent cause of AVPlayer 403s on iOS.
+  final embedUri = Uri.tryParse(embedUrl);
+  final embedOrigin = (embedUri != null && embedUri.hasScheme && embedUri.host.isNotEmpty)
+      ? '${embedUri.scheme}://${embedUri.host}'
+      : null;
+
+  bool isHls(String u) => u.toLowerCase().contains('.m3u8');
+  bool isDash(String u) => u.toLowerCase().contains('.mpd');
+  int streamRank(String u) {
+    final l = u.toLowerCase();
+    if (l.contains('.m3u8')) return 3;
+    if (l.contains('/manifest') || l.contains('/playlist') || l.contains('master.txt')) {
+      return 2;
+    }
+    if (l.contains('.mp4')) return 1;
+    if (l.contains('.mpd')) return 0; // AVPlayer can't play DASH
+    return 1;
+  }
 
   Future<void> dispose() async {
     subtitleTimer?.cancel();
@@ -95,6 +107,12 @@ Future<ExtractedStream?> extractStream({
   void resolveWithStream() {
     if (completer.isCompleted) return;
     if (streamUrl == null) return;
+    // Final header hygiene for the native player.
+    if (embedOrigin != null) {
+      headers['Referer'] = '$embedOrigin/';
+      headers.putIfAbsent('Origin', () => embedOrigin);
+    }
+    headers.removeWhere((k, _) => k.toLowerCase().startsWith('sec-'));
     completer.complete(ExtractedStream(
       videoUrl: streamUrl!,
       subtitleUrl: subtitleUrls.isNotEmpty ? subtitleUrls.first : null,
@@ -113,13 +131,29 @@ Future<ExtractedStream?> extractStream({
   // Wire external cancellation (the race kills losers through this).
   handle?._onCancel = resolveNull;
 
+  void mergeHeaders(Map<String, String> reqHeaders) {
+    reqHeaders.forEach((k, v) {
+      final lk = k.toLowerCase();
+      if (lk == 'referer' ||
+          lk == 'origin' ||
+          lk == 'user-agent' ||
+          lk == 'cookie') {
+        headers[k] = v;
+      }
+    });
+  }
+
   void capture(Uri uri, Map<String, String> reqHeaders) {
-    final fullLower = uri.toString().toLowerCase();
+    final raw = uri.toString();
+    final fullLower = raw.toLowerCase();
+    if (fullLower.startsWith('blob:') || fullLower.startsWith('data:')) return;
+
     final isVideo = fullLower.contains('.m3u8') ||
         fullLower.contains('.mp4') ||
         fullLower.contains('.mpd') ||
         fullLower.contains('/manifest') ||
-        fullLower.contains('/playlist');
+        fullLower.contains('/playlist') ||
+        fullLower.contains('master.txt');
     final isSegment = fullLower.contains('.ts?') ||
         fullLower.endsWith('.ts') ||
         fullLower.contains('.m4s');
@@ -128,25 +162,36 @@ Future<ExtractedStream?> extractStream({
         fullLower.contains('/subtitle') ||
         fullLower.contains('/caption');
 
-    if (isVideo && !isSegment && streamUrl == null) {
-      streamUrl = uri.toString();
-      reqHeaders.forEach((k, v) {
-        final lk = k.toLowerCase();
-        if (lk == 'referer' ||
-            lk == 'origin' ||
-            lk == 'user-agent' ||
-            lk == 'cookie' ||
-            lk.startsWith('sec-')) {
-          headers[k] = v;
+    // iOS AVPlayer cannot play DASH — never hand those off as the winner.
+    if (Platform.isIOS && isDash(raw) && !isHls(raw)) {
+      return;
+    }
+
+    if (isVideo && !isSegment) {
+      final current = streamUrl;
+      final upgrade = current == null || streamRank(raw) > streamRank(current);
+      final same = current == raw;
+      if (upgrade) {
+        streamUrl = raw;
+        mergeHeaders(reqHeaders);
+        if (embedOrigin != null) {
+          headers['Referer'] = '$embedOrigin/';
+          headers.putIfAbsent('Origin', () => embedOrigin);
+        } else {
+          headers.putIfAbsent('Referer', () => '${uri.scheme}://${uri.host}/');
         }
-      });
-      headers.putIfAbsent('Referer', () => '${uri.scheme}://${uri.host}/');
-      // Give subtitles a brief window in case they fire after the manifest.
-      subtitleTimer?.cancel();
-      subtitleTimer = Timer(subtitleGrace, resolveWithStream);
+        // Wait longer on iOS so an early ad .mp4 can be upgraded to .m3u8.
+        final grace = Platform.isIOS && !isHls(raw)
+            ? const Duration(milliseconds: 2500)
+            : subtitleGrace;
+        subtitleTimer?.cancel();
+        subtitleTimer = Timer(grace, resolveWithStream);
+      } else if (same) {
+        mergeHeaders(reqHeaders);
+      }
     }
     if (isSubtitle) {
-      final s = uri.toString();
+      final s = raw;
       if (!subtitleUrls.contains(s)) subtitleUrls.add(s);
     }
   }
@@ -160,18 +205,61 @@ Future<ExtractedStream?> extractStream({
       mediaPlaybackRequiresUserGesture: false,
       allowsInlineMediaPlayback: true,
       iframeAllowFullscreen: true,
-      useShouldInterceptRequest: true,
+      // Android: full request interception with headers.
+      useShouldInterceptRequest: Platform.isAndroid,
+      // iOS: Resource Timing / WKWebView load callbacks (no headers).
+      useOnLoadResource: true,
+      // Catch fetch()/XHR manifests on both platforms when embeds use them.
+      useShouldInterceptAjaxRequest: true,
+      useShouldInterceptFetchRequest: true,
     ),
     initialUserScripts: UnmodifiableListView<UserScript>([
       UserScript(
         source: "sessionStorage.setItem('ads-enabled-session', 'false');",
         injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
       ),
+      // Report video.currentSrc + Performance resource URLs to Dart. Critical
+      // on iOS where shouldInterceptRequest does not exist.
+      UserScript(
+        forMainFrameOnly: false,
+        injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+        source: r"""
+          (function() {
+            if (window.__reelixStreamProbe) return;
+            window.__reelixStreamProbe = true;
+            function report(u) {
+              if (!u || typeof u !== 'string') return;
+              if (u.indexOf('blob:') === 0 || u.indexOf('data:') === 0) return;
+              var l = u.toLowerCase();
+              if (l.indexOf('.m3u8') >= 0 || l.indexOf('.mp4') >= 0 ||
+                  l.indexOf('.mpd') >= 0 || l.indexOf('/manifest') >= 0 ||
+                  l.indexOf('/playlist') >= 0 || l.indexOf('master.txt') >= 0) {
+                try { window.flutter_inappwebview.callHandler('capturedStream', u); } catch (e) {}
+              }
+            }
+            function scan() {
+              try {
+                var videos = document.querySelectorAll('video');
+                for (var i = 0; i < videos.length; i++) {
+                  report(videos[i].currentSrc || videos[i].src);
+                  var sources = videos[i].querySelectorAll('source');
+                  for (var j = 0; j < sources.length; j++) report(sources[j].src);
+                }
+                if (window.performance && performance.getEntriesByType) {
+                  var entries = performance.getEntriesByType('resource');
+                  for (var k = 0; k < entries.length; k++) report(entries[k].name);
+                }
+              } catch (e) {}
+            }
+            setInterval(scan, 500);
+          })();
+        """,
+      ),
       // Same aggressive auto-clicker as the player's headless extractor —
       // synthesises a full pointer/click sequence at viewport centre +
       // offsets, hits common play-button selectors, and calls video.play()
       // with a muted-autoplay fallback. This is what makes the embed
-      // actually fetch its manifest so shouldInterceptRequest sees it.
+      // actually fetch its manifest so the interceptors see it.
       UserScript(
         forMainFrameOnly: false,
         injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
@@ -252,14 +340,65 @@ Future<ExtractedStream?> extractStream({
         """,
       ),
     ]),
-    shouldInterceptRequest: (controller, req) async {
+    onWebViewCreated: (controller) {
+      controller.addJavaScriptHandler(
+        handlerName: 'capturedStream',
+        callback: (args) {
+          if (args.isEmpty) return null;
+          final u = args.first?.toString();
+          if (u == null || u.isEmpty) return null;
+          try {
+            capture(Uri.parse(u), const {});
+          } catch (_) {}
+          return null;
+        },
+      );
+    },
+    // Android-only native interceptor (includes request headers).
+    shouldInterceptRequest: Platform.isAndroid
+        ? (controller, req) async {
+            try {
+              final url = req.url;
+              final reqHeaders = <String, String>{};
+              req.headers?.forEach((k, v) => reqHeaders[k] = v);
+              capture(Uri.parse(url.toString()), reqHeaders);
+            } catch (_) {}
+            return null;
+          }
+        : null,
+    // iOS primary path — sees HLS/media URLs WKWebView loads.
+    onLoadResource: (controller, resource) async {
+      try {
+        final url = resource.url;
+        if (url == null) return;
+        capture(Uri.parse(url.toString()), const {});
+      } catch (_) {}
+    },
+    shouldInterceptAjaxRequest: (controller, req) async {
       try {
         final url = req.url;
-        final reqHeaders = <String, String>{};
-        req.headers?.forEach((k, v) => reqHeaders[k] = v);
-        capture(Uri.parse(url.toString()), reqHeaders);
+        if (url != null) {
+          final reqHeaders = <String, String>{};
+          req.headers?.getHeaders().forEach((k, v) {
+            if (v != null) reqHeaders[k] = v.toString();
+          });
+          capture(Uri.parse(url.toString()), reqHeaders);
+        }
       } catch (_) {}
-      return null;
+      return req;
+    },
+    shouldInterceptFetchRequest: (controller, req) async {
+      try {
+        final url = req.url;
+        if (url != null) {
+          final reqHeaders = <String, String>{};
+          req.headers?.forEach((k, v) {
+            if (v != null) reqHeaders[k] = v.toString();
+          });
+          capture(Uri.parse(url.toString()), reqHeaders);
+        }
+      } catch (_) {}
+      return req;
     },
   );
 
@@ -300,7 +439,7 @@ Future<RacedStream?> raceServersForStream({
   List<StreamServer>? servers,
   Duration timeout = const Duration(seconds: 45),
 }) async {
-  if (kIsWeb || !Platform.isAndroid) return null;
+  if (kIsWeb) return null;
   final list = servers ?? streamServers;
   if (list.isEmpty) return null;
 

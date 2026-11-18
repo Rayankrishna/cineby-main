@@ -89,7 +89,12 @@ class _MyWidgetState extends State<MyWidget> {
     mediaPlaybackRequiresUserGesture: false,
     allowsInlineMediaPlayback: true,
     iframeAllowFullscreen: true,
-    useShouldInterceptRequest: true,
+    // Android: native request interception with headers.
+    useShouldInterceptRequest: Platform.isAndroid,
+    // iOS: WKWebView resource loads (shouldInterceptRequest is Android-only).
+    useOnLoadResource: true,
+    useShouldInterceptAjaxRequest: true,
+    useShouldInterceptFetchRequest: true,
   );
 
   // Headless webview — runs entirely off-screen so it doesn't fight the
@@ -266,18 +271,50 @@ class _MyWidgetState extends State<MyWidget> {
           },
         );
       },
-      shouldInterceptRequest:
-          Platform.isAndroid
-              ? (controller, req) async {
-                try {
-                  final url = req.url;
-                  final headers = <String, String>{};
-                  req.headers?.forEach((k, v) => headers[k] = v);
-                  _captureRequest(Uri.parse(url.toString()), headers);
-                } catch (_) {}
-                return null;
-              }
-              : null,
+      shouldInterceptRequest: Platform.isAndroid
+          ? (controller, req) async {
+              try {
+                final url = req.url;
+                final headers = <String, String>{};
+                req.headers?.forEach((k, v) => headers[k] = v);
+                _captureRequest(Uri.parse(url.toString()), headers);
+              } catch (_) {}
+              return null;
+            }
+          : null,
+      onLoadResource: (controller, resource) async {
+        try {
+          final url = resource.url;
+          if (url == null) return;
+          _captureRequest(Uri.parse(url.toString()), const {});
+        } catch (_) {}
+      },
+      shouldInterceptAjaxRequest: (controller, req) async {
+        try {
+          final url = req.url;
+          if (url != null) {
+            final headers = <String, String>{};
+            req.headers?.getHeaders().forEach((k, v) {
+              if (v != null) headers[k] = v.toString();
+            });
+            _captureRequest(Uri.parse(url.toString()), headers);
+          }
+        } catch (_) {}
+        return req;
+      },
+      shouldInterceptFetchRequest: (controller, req) async {
+        try {
+          final url = req.url;
+          if (url != null) {
+            final headers = <String, String>{};
+            req.headers?.forEach((k, v) {
+              if (v != null) headers[k] = v.toString();
+            });
+            _captureRequest(Uri.parse(url.toString()), headers);
+          }
+        } catch (_) {}
+        return req;
+      },
     );
     await _headless!.run();
   }
@@ -333,11 +370,27 @@ class _MyWidgetState extends State<MyWidget> {
     );
   }
 
+  int _streamRank(String u) {
+    final l = u.toLowerCase();
+    if (l.contains('.m3u8')) return 3;
+    if (l.contains('/manifest') ||
+        l.contains('/playlist') ||
+        l.contains('master.txt')) {
+      return 2;
+    }
+    if (l.contains('.mp4')) return 1;
+    if (l.contains('.mpd')) return 0;
+    return 1;
+  }
+
   // Intercepted from the iframe's HTTP requests. We watch for HLS/MP4
   // playlists and WebVTT subtitle files, plus the headers (especially
   // Referer/Origin) the underlying stream expects.
   void _captureRequest(Uri uri, Map<String, String> headers) {
-    final fullLower = uri.toString().toLowerCase();
+    final raw = uri.toString();
+    final fullLower = raw.toLowerCase();
+    if (fullLower.startsWith('blob:') || fullLower.startsWith('data:')) return;
+
     final isVideo =
         fullLower.contains('.m3u8') ||
         fullLower.contains('.mp4') ||
@@ -357,36 +410,67 @@ class _MyWidgetState extends State<MyWidget> {
         fullLower.contains('/caption');
     if ((!isVideo || isSegment) && !isSubtitle) return;
 
-    // For HLS, segment URLs (.ts) and variant playlists also show up; prefer
-    // the first .m3u8 we see — usually the master — and ignore subsequent ones.
-    if (isVideo && !isSegment && _streamUrl == null) {
-      _streamUrl = uri.toString();
-      _streamHeaders.clear();
-      headers.forEach((k, v) {
-        final lk = k.toLowerCase();
-        if (lk == 'referer' ||
-            lk == 'origin' ||
-            lk == 'user-agent' ||
-            lk == 'cookie' ||
-            lk.startsWith('sec-')) {
-          _streamHeaders[k] = v;
+    // AVPlayer can't play DASH — never hand an .mpd to the native player on iOS.
+    if (Platform.isIOS &&
+        fullLower.contains('.mpd') &&
+        !fullLower.contains('.m3u8')) {
+      return;
+    }
+
+    final embedUri = Uri.tryParse(_currentUrl);
+    final embedOrigin =
+        (embedUri != null && embedUri.hasScheme && embedUri.host.isNotEmpty)
+            ? '${embedUri.scheme}://${embedUri.host}'
+            : null;
+
+    if (isVideo && !isSegment) {
+      final current = _streamUrl;
+      final upgrade =
+          current == null || _streamRank(raw) > _streamRank(current);
+      if (upgrade) {
+        _streamUrl = raw;
+        _streamHeaders
+          ..clear()
+          ..addEntries(
+            headers.entries.where((e) {
+              final lk = e.key.toLowerCase();
+              return lk == 'referer' ||
+                  lk == 'origin' ||
+                  lk == 'user-agent' ||
+                  lk == 'cookie';
+            }),
+          );
+        if (embedOrigin != null) {
+          _streamHeaders['Referer'] = '$embedOrigin/';
+          _streamHeaders.putIfAbsent('Origin', () => embedOrigin);
+        } else {
+          _streamHeaders.putIfAbsent(
+            'Referer',
+            () => '${uri.scheme}://${uri.host}/',
+          );
         }
-      });
-      // Fall back to the iframe origin as Referer if not set.
-      _streamHeaders.putIfAbsent(
-        'Referer',
-        () => '${uri.scheme}://${uri.host}/',
-      );
-      // Give subtitles a brief moment to also be captured before handing off.
-      _handoffTimer?.cancel();
-      _handoffTimer = Timer(
-        const Duration(milliseconds: 1200),
-        _openNativePlayer,
-      );
-      if (mounted) setState(() {});
+        final graceMs =
+            Platform.isIOS && !fullLower.contains('.m3u8') ? 2500 : 1200;
+        _handoffTimer?.cancel();
+        _handoffTimer = Timer(
+          Duration(milliseconds: graceMs),
+          _openNativePlayer,
+        );
+        if (mounted) setState(() {});
+      } else if (current == raw) {
+        headers.forEach((k, v) {
+          final lk = k.toLowerCase();
+          if (lk == 'referer' ||
+              lk == 'origin' ||
+              lk == 'user-agent' ||
+              lk == 'cookie') {
+            _streamHeaders[k] = v;
+          }
+        });
+      }
     }
     if (isSubtitle) {
-      final s = uri.toString();
+      final s = raw;
       if (!_subtitleUrls.contains(s)) {
         _subtitleUrls.add(s);
         _subtitleUrl ??= s; // first one becomes the default

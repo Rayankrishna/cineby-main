@@ -98,6 +98,10 @@ class SubtitleService {
   final Map<String, List<YifySubtitle>> _listCache = {};
   // track key (zip url / "os:<fileId>") → converted VTT text, session-cached.
   final Map<String, String> _vttCache = {};
+  // track key → download in progress, so two requests for the same track
+  // (the player's auto-pick and a user tap) share one download — each
+  // OpenSubtitles download counts against the daily quota.
+  final Map<String, Future<String?>> _vttInflight = {};
 
   // --- OpenSubtitles REST (api.opensubtitles.com) -------------------------
   // Default base; login may hand back a per-user base_url we should switch to.
@@ -268,8 +272,15 @@ class SubtitleService {
     return [...results[0], ...results[1]];
   }
 
-  /// Resolve a track to WebVTT, dispatching to the right provider. Cached.
+  /// Resolve a track to WebVTT, dispatching to the right provider. Cached,
+  /// and concurrent requests for the same track share one download.
   Future<String?> vttForTrack(SubtitleTrack t) {
+    return _vttInflight[t.key] ??= _vttForTrackUncached(t).whenComplete(() {
+      _vttInflight.remove(t.key);
+    });
+  }
+
+  Future<String?> _vttForTrackUncached(SubtitleTrack t) {
     switch (t.source) {
       case SubtitleSource.yify:
         return vttForZip(t.zipUrl!);
